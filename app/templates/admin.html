@@ -49,24 +49,24 @@
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
       <label>From</label>
-      <div class="autocomplete-wrapper" id="ac-origin-wrapper">
-        <input type="text" id="ac-origin-input" autocomplete="off">
+      <div class="autocomplete-wrapper" id="ac-origin-wrapper" style="width:100%">
+        <input type="text" id="ac-origin-input" autocomplete="off" style="width:100%">
         <div class="autocomplete-list" id="ac-origin-list" style="display:none"></div>
       </div>
       <div class="error-msg" id="ac-origin-error"></div>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
       <label>To</label>
-      <div class="autocomplete-wrapper" id="ac-dest-wrapper">
-        <input type="text" id="ac-dest-input" autocomplete="off">
+      <div class="autocomplete-wrapper" id="ac-dest-wrapper" style="width:100%">
+        <input type="text" id="ac-dest-input" autocomplete="off" style="width:100%">
         <div class="autocomplete-list" id="ac-dest-list" style="display:none"></div>
       </div>
       <div class="error-msg" id="ac-dest-error"></div>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
       <label>Change at <span class="info-msg">(optional)</span></label>
-      <div class="autocomplete-wrapper" id="ac-change-wrapper">
-        <input type="text" id="ac-change-input" autocomplete="off">
+      <div class="autocomplete-wrapper" id="ac-change-wrapper" style="width:100%">
+        <input type="text" id="ac-change-input" autocomplete="off" style="width:100%">
         <div class="autocomplete-list" id="ac-change-list" style="display:none"></div>
       </div>
     </div>
@@ -252,11 +252,11 @@ function makeAutocomplete(inputId, listId) {
       const items = await fetchJSON(`/api/stations/search?q=${encodeURIComponent(q)}`).catch(() => []);
       if (!items.length) { list.style.display = 'none'; return; }
       list.innerHTML = items.map(s =>
-        `<div class="autocomplete-item" data-crs="${esc(s.crs)}">${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span></div>`
+        `<div class="autocomplete-item" data-crs="${esc(s.crs)}" data-name="${esc(s.name)}">${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span></div>`
       ).join('');
       list.querySelectorAll('.autocomplete-item').forEach(el => {
         el.addEventListener('click', () => {
-          input.value = el.querySelector('.crs-code').textContent + ' — ' + el.firstChild.textContent.trim();
+          input.value = el.dataset.name;
           input.dataset.crs = el.dataset.crs;
           selectedCrs = el.dataset.crs;
           list.style.display = 'none';
