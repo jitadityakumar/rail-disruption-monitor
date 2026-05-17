@@ -57,9 +57,8 @@ async function loadKiosk() {
             <div class="disruption-date">${formatDate(d.date)}</div>
             <div class="disruption-slots">
               ${d.slots.map(s => {
-                const label = s.direction.charAt(0).toUpperCase() + s.direction.slice(1);
                 const reasons = s.disruption_reasons.map(esc).join(' · ');
-                return `<div>${esc(label)}${reasons ? ' — ' + reasons : ''}</div>`;
+                return `<div>${esc(s.label)}${reasons ? ' — ' + reasons : ''}</div>`;
               }).join('')}
             </div>
           </div>`).join('')
@@ -69,7 +68,7 @@ async function loadKiosk() {
       <div class="route-display-card ${hasDisruption ? 'has-disruption' : ''}">
         <div class="route-name">
           ${esc(route.name)}
-          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${esc(route.crs_sequence.join(' → '))}</span>
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${esc(route.crs_display)}</span>
         </div>
         ${disruptionHtml}
       </div>`;

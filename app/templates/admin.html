@@ -52,15 +52,27 @@
       <input type="text" id="route-name" placeholder="e.g. Barnes → Waterloo">
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
-      <label>Stations (type CRS code or name, press Enter to add)</label>
-      <div class="autocomplete-wrapper">
-        <div class="crs-input-area" id="crs-input-area" onclick="document.getElementById('crs-text').focus()">
-          <input class="crs-text-input" id="crs-text" placeholder="BNS…" autocomplete="off">
-        </div>
-        <div class="autocomplete-list" id="autocomplete-list" style="display:none"></div>
+      <label>From</label>
+      <div class="autocomplete-wrapper" id="ac-origin-wrapper">
+        <input class="crs-text-input" id="ac-origin-input" placeholder="BNS…" autocomplete="off">
+        <div class="autocomplete-list" id="ac-origin-list" style="display:none"></div>
       </div>
-      <div class="info-msg">First = origin, last = destination, middle = waypoints</div>
-      <div class="error-msg" id="crs-error"></div>
+      <div class="error-msg" id="ac-origin-error"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Change at <span class="info-msg">(optional)</span></label>
+      <div class="autocomplete-wrapper" id="ac-change-wrapper">
+        <input class="crs-text-input" id="ac-change-input" placeholder="CLJ… or leave blank" autocomplete="off">
+        <div class="autocomplete-list" id="ac-change-list" style="display:none"></div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>To</label>
+      <div class="autocomplete-wrapper" id="ac-dest-wrapper">
+        <input class="crs-text-input" id="ac-dest-input" placeholder="WAT…" autocomplete="off">
+        <div class="autocomplete-list" id="ac-dest-list" style="display:none"></div>
+      </div>
+      <div class="error-msg" id="ac-dest-error"></div>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
       <label>Scan days</label>
@@ -113,7 +125,7 @@
 
     <!-- Step 1: date + fetch -->
     <div id="baseline-step1">
-      <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched at noon for both the outbound and return directions.</p>
+      <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched at noon for each leg.</p>
       <div class="form-group" style="margin-bottom:1rem">
         <label>Baseline date</label>
         <input type="date" id="baseline-date">
@@ -127,7 +139,7 @@
 
     <!-- Step 2: option picker -->
     <div id="baseline-step2" style="display:none">
-      <p class="info-msg" style="margin-bottom:0.75rem">Select the journey to use as the baseline for each direction.</p>
+      <p class="info-msg" style="margin-bottom:0.75rem">Select the direct train to use as baseline for each leg.</p>
       <div id="baseline-options-body"></div>
       <div class="error-msg" id="baseline-confirm-error"></div>
       <div style="display:flex;gap:0.5rem;margin-top:1rem">
@@ -191,8 +203,8 @@
 {% block scripts %}
 <script>
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-let _crsPills = [];
 let _baselineRouteId = null;
+let _baselineOptions = null;
 let _routesCache = {};
 
 // ── Route list ──────────────────────────────────────────
@@ -204,9 +216,11 @@ async function loadRoutes() {
     return;
   }
   rows.forEach(r => { _routesCache[r.id] = r; });
-  tbody.innerHTML = rows.map(r => `
+  tbody.innerHTML = rows.map(r => {
+    const crsParts = [r.origin_crs, r.change_crs, r.destination_crs].filter(Boolean);
+    return `
     <tr>
-      <td><strong>${esc(r.name)}</strong><br><span class="info-msg">${esc(r.crs_sequence.join(' → '))}</span></td>
+      <td><strong>${esc(r.name)}</strong><br><span class="info-msg">${esc(crsParts.join(' → '))}</span></td>
       <td>${r.scan_days.map(d => DAY_NAMES[d]).join(', ')}</td>
       <td>${r.lookahead_weeks}w</td>
       <td>${r.threshold_pct}%</td>
@@ -221,122 +235,91 @@ async function loadRoutes() {
           <button class="btn-danger btn-ghost" onclick="deleteRoute(${r.id})">Delete</button>
         </div>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 }
+
+// ── Autocomplete helper ──────────────────────────────────
+function makeAutocomplete(inputId, listId) {
+  const input = document.getElementById(inputId);
+  const list  = document.getElementById(listId);
+  let selectedCrs = null;
+  let timer = null;
+
+  input.addEventListener('input', () => {
+    selectedCrs = null;
+    input.dataset.crs = '';
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 1) { list.style.display = 'none'; return; }
+    timer = setTimeout(async () => {
+      const items = await fetchJSON(`/api/stations/search?q=${encodeURIComponent(q)}`).catch(() => []);
+      if (!items.length) { list.style.display = 'none'; return; }
+      list.innerHTML = items.map(s =>
+        `<div class="autocomplete-item" data-crs="${esc(s.crs)}">${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span></div>`
+      ).join('');
+      list.querySelectorAll('.autocomplete-item').forEach(el => {
+        el.addEventListener('click', () => {
+          input.value = el.querySelector('.crs-code').textContent + ' — ' + el.firstChild.textContent.trim();
+          input.dataset.crs = el.dataset.crs;
+          selectedCrs = el.dataset.crs;
+          list.style.display = 'none';
+        });
+      });
+      list.style.display = 'block';
+    }, 200);
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest(`#${listId}`) && e.target !== input) list.style.display = 'none';
+  });
+
+  return {
+    getCrs: () => input.dataset.crs || null,
+    reset: () => { input.value = ''; input.dataset.crs = ''; selectedCrs = null; list.style.display = 'none'; },
+  };
+}
+
+const acOrigin = makeAutocomplete('ac-origin-input', 'ac-origin-list');
+const acChange = makeAutocomplete('ac-change-input', 'ac-change-list');
+const acDest   = makeAutocomplete('ac-dest-input',   'ac-dest-list');
 
 // ── Add route modal ──────────────────────────────────────
 function openAddModal() {
-  _crsPills = [];
-  renderPills();
+  acOrigin.reset();
+  acChange.reset();
+  acDest.reset();
   document.getElementById('route-name').value = '';
-  document.getElementById('crs-error').textContent = '';
+  document.getElementById('ac-origin-error').textContent = '';
+  document.getElementById('ac-dest-error').textContent = '';
   document.getElementById('add-error').textContent = '';
   openModal('add-modal');
 }
 
-function renderPills() {
-  const area = document.getElementById('crs-input-area');
-  const input = document.getElementById('crs-text');
-  area.querySelectorAll('.crs-pill').forEach(p => p.remove());
-  _crsPills.forEach((crs, i) => {
-    const pill = document.createElement('span');
-    pill.className = 'crs-pill';
-    pill.innerHTML = `${esc(crs)} <span class="remove" onclick="removePill(${i})">✕</span>`;
-    area.insertBefore(pill, input);
-  });
-}
-
-function removePill(i) {
-  _crsPills.splice(i, 1);
-  renderPills();
-}
-
-let _autocompleteTimeout = null;
-document.getElementById('crs-text').addEventListener('input', function() {
-  clearTimeout(_autocompleteTimeout);
-  const q = this.value.trim();
-  if (q.length < 1) { hideAutocomplete(); return; }
-  _autocompleteTimeout = setTimeout(() => fetchAutocomplete(q), 200);
-});
-
-document.getElementById('crs-text').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault();
-    const val = this.value.trim().toUpperCase();
-    if (val) addCrsPill(val);
-  }
-  if (e.key === 'Backspace' && this.value === '' && _crsPills.length) {
-    _crsPills.pop();
-    renderPills();
-  }
-  if (e.key === 'ArrowDown') focusAutocomplete(1);
-  if (e.key === 'ArrowUp') focusAutocomplete(-1);
-});
-
-async function fetchAutocomplete(q) {
-  const items = await fetchJSON(`/api/stations/search?q=${encodeURIComponent(q)}`).catch(() => []);
-  const list = document.getElementById('autocomplete-list');
-  if (!items.length) { list.style.display = 'none'; return; }
-  list.innerHTML = items.map(s => `
-    <div class="autocomplete-item" data-crs="${esc(s.crs)}">
-      ${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span>
-    </div>`).join('');
-  list.querySelectorAll('.autocomplete-item').forEach(el => {
-    el.addEventListener('click', () => selectAutocomplete(el.dataset.crs));
-  });
-  list.style.display = 'block';
-}
-
-function selectAutocomplete(crs) {
-  addCrsPill(crs);
-  hideAutocomplete();
-}
-
-function addCrsPill(crs) {
-  _crsPills.push(crs.toUpperCase());
-  renderPills();
-  document.getElementById('crs-text').value = '';
-}
-
-function hideAutocomplete() {
-  document.getElementById('autocomplete-list').style.display = 'none';
-}
-
-function focusAutocomplete(dir) {
-  const items = document.querySelectorAll('#autocomplete-list .autocomplete-item');
-  const active = document.querySelector('#autocomplete-list .autocomplete-item.active');
-  let idx = Array.from(items).indexOf(active) + dir;
-  idx = Math.max(0, Math.min(items.length - 1, idx));
-  items.forEach(i => i.classList.remove('active'));
-  if (items[idx]) {
-    items[idx].classList.add('active');
-    items[idx].scrollIntoView({block:'nearest'});
-  }
-}
-
-document.addEventListener('click', e => {
-  if (!e.target.closest('.autocomplete-wrapper')) hideAutocomplete();
-});
-
 async function submitAddRoute(btn) {
-  const crs = [..._crsPills];
-  if (crs.length < 2) {
-    document.getElementById('crs-error').textContent = 'Add at least 2 stations.';
-    return;
-  }
+  const origin_crs = acOrigin.getCrs();
+  const change_crs = acChange.getCrs() || null;
+  const destination_crs = acDest.getCrs();
+
+  document.getElementById('ac-origin-error').textContent = origin_crs ? '' : 'Select a departure station.';
+  document.getElementById('ac-dest-error').textContent   = destination_crs ? '' : 'Select a destination station.';
+  if (!origin_crs || !destination_crs) return;
+
   const scan_days = Array.from(document.querySelectorAll('[name="scan_day"]:checked')).map(c => +c.value);
   if (!scan_days.length) {
     document.getElementById('add-error').textContent = 'Select at least one scan day.';
     return;
   }
+
   btn.disabled = true;
   const err = document.getElementById('add-error');
   err.textContent = '';
   try {
     await postJSON('/api/routes', {
       name: document.getElementById('route-name').value.trim(),
-      crs_sequence: crs,
+      origin_crs,
+      change_crs,
+      destination_crs,
       scan_days,
       lookahead_weeks: +document.getElementById('lookahead-weeks').value,
       threshold_pct: +document.getElementById('threshold-pct').value,
@@ -357,8 +340,6 @@ async function submitAddRoute(btn) {
 }
 
 // ── Baseline modal ──────────────────────────────────────
-let _baselineOptions = null;
-
 function openBaselineModal(routeId) {
   _baselineRouteId = routeId;
   _baselineOptions = null;
@@ -383,8 +364,15 @@ function fmtDuration(s) {
 }
 
 function fmtStops(steps) {
-  if (!steps.length) return 'No legs';
+  if (!steps || !steps.length) return 'No legs';
   return [steps[0].dep_stop, ...steps.map(s => s.arr_stop)].join(' → ');
+}
+
+// Map leg_label key to options from the API response
+function _legOptions(options, key) {
+  const [dir, legNum] = key.split('_');   // e.g. "outbound_1" → ["outbound", "1"]
+  const legKey = 'leg' + legNum;          // "leg1" or "leg2"
+  return (options[dir] && options[dir][legKey]) || [];
 }
 
 async function fetchBaselineOptions(btn) {
@@ -409,15 +397,14 @@ async function fetchBaselineOptions(btn) {
 }
 
 function renderBaselineOptions(options) {
-  const directions = [
-    { key: 'outbound', label: 'Outbound' },
-    { key: 'return',   label: 'Return' },
-  ];
+  const route = _routesCache[_baselineRouteId];
+  const legLabels = route.leg_labels;   // [{key, label}, ...]
   const body = document.getElementById('baseline-options-body');
-  body.innerHTML = directions.map(({ key, label }) => {
-    const opts = options[key] || [];
+
+  body.innerHTML = legLabels.map(({ key, label }) => {
+    const opts = _legOptions(options, key);
     if (!opts.length) {
-      return `<div class="baseline-slot"><div class="baseline-slot-label">${label}</div><div class="info-msg">No service found.</div></div>`;
+      return `<div class="baseline-slot"><div class="baseline-slot-label">${esc(label)}</div><div class="info-msg">No service found.</div></div>`;
     }
     const name = `bl_${key}`;
     const radios = opts.map((o, i) => `
@@ -425,11 +412,11 @@ function renderBaselineOptions(options) {
         <input type="radio" name="${name}" value="${i}" ${i === 0 ? 'checked' : ''}>
         <span class="baseline-option-inner">
           <span class="baseline-option-duration">${fmtDuration(o.duration_s)}</span>
-          <span class="baseline-option-stops">${fmtStops(o.steps)}</span>
+          <span class="baseline-option-stops">${esc(fmtStops(o.steps))}</span>
         </span>
       </label>`).join('');
     return `<div class="baseline-slot">
-      <div class="baseline-slot-label">${label}</div>
+      <div class="baseline-slot-label">${esc(label)}</div>
       <div class="baseline-option-group">${radios}</div>
     </div>`;
   }).join('');
@@ -445,19 +432,29 @@ function renderBaselineOptions(options) {
 
 async function confirmBaseline(btn) {
   const date = document.getElementById('baseline-date').value;
-  const selections = {};
-  for (const key of ['outbound', 'return']) {
+  const route = _routesCache[_baselineRouteId];
+  const payload = { baseline_date: date };
+
+  for (const { key } of route.leg_labels) {
     const radio = document.querySelector(`[name="bl_${key}"]:checked`);
     const idx = radio ? +radio.value : 0;
-    const opts = (_baselineOptions && _baselineOptions[key]) || [];
-    if (opts[idx]) selections[key] = opts[idx];
+    const opts = _legOptions(_baselineOptions, key);
+    // "outbound_1" → "outbound_leg1", "return_2" → "return_leg2"
+    const fieldName = key.replace('_', '_leg');
+    payload[fieldName] = opts[idx] || null;
   }
+
+  // Ensure unused legs are explicitly null
+  for (const k of ['outbound_leg1','outbound_leg2','return_leg1','return_leg2']) {
+    if (!(k in payload)) payload[k] = null;
+  }
+
   const err = document.getElementById('baseline-confirm-error');
   err.textContent = '';
   btn.disabled = true;
   btn.innerHTML = 'Saving… <span class="spinner"></span>';
   try {
-    await postJSON(`/api/routes/${_baselineRouteId}/baseline/confirm`, { baseline_date: date, selections });
+    await postJSON(`/api/routes/${_baselineRouteId}/baseline/confirm`, payload);
     closeModal('baseline-modal');
     loadRoutes();
   } catch (e) {

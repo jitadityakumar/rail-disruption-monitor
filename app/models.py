@@ -12,19 +12,24 @@ def _validate_scan_days(v: list[int]) -> list[int]:
 
 
 class RouteCreate(BaseModel):
-    name: str
-    crs_sequence: list[str]
+    name: str = ""
+    origin_crs: str
+    change_crs: Optional[str] = None
+    destination_crs: str
     scan_days: list[int]
     lookahead_weeks: int = 4
     threshold_pct: int = 20
     kiosk_visible: bool = True
 
-    @field_validator("crs_sequence")
+    @field_validator("origin_crs", "destination_crs")
     @classmethod
-    def validate_min_length(cls, v):
-        if len(v) < 2:
-            raise ValueError("crs_sequence must have at least 2 stations")
-        return [c.upper() for c in v]
+    def upper_crs(cls, v):
+        return v.upper()
+
+    @field_validator("change_crs")
+    @classmethod
+    def upper_change_crs(cls, v):
+        return v.upper() if v else v
 
     @field_validator("scan_days")
     @classmethod
@@ -79,24 +84,15 @@ class BaselineTrigger(BaseModel):
     baseline_date: str
 
 
-class SlotSelection(BaseModel):
+class LegSelection(BaseModel):
     duration_s: Optional[int] = None
     steps: list = []
+    arr_stop: str = ""
 
 
 class BaselineConfirm(BaseModel):
     baseline_date: str
-    selections: dict[str, SlotSelection]
-
-
-class RouteOut(BaseModel):
-    id: int
-    name: str
-    crs_sequence: list[str]
-    scan_days: list[int]
-    lookahead_weeks: int
-    threshold_pct: int
-    kiosk_visible: bool
-    last_scanned_at: Optional[str]
-    created_at: str
-    has_baseline: bool = False
+    outbound_leg1: LegSelection
+    outbound_leg2: Optional[LegSelection] = None
+    return_leg1: LegSelection
+    return_leg2: Optional[LegSelection] = None
