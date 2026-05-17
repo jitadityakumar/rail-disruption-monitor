@@ -1,0 +1,544 @@
+{% extends "base.html" %}
+{% block title %}Admin — Rail Monitor{% endblock %}
+{% block content %}
+
+<div class="section">
+  <div class="section-header">
+    <h2>Routes</h2>
+    <button onclick="openAddModal()">+ Add Route</button>
+  </div>
+  <div class="card" style="padding:0">
+    <table id="routes-table">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th>Scan days</th>
+          <th>Lookahead</th>
+          <th>Threshold</th>
+          <th>Baseline</th>
+          <th>Last scanned</th>
+          <th>Kiosk</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="routes-body">
+        <tr><td colspan="8" class="info-msg" style="text-align:center;padding:1.5rem">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Scheduler</h2>
+  <div class="card">
+    <p class="info-msg">
+      Weekly scan runs every <strong>{{ next_scan | default('—') }}</strong>
+      {% if next_scan %}<br><span style="font-size:0.8rem">Next run: {{ next_scan }}</span>{% endif %}
+    </p>
+    <button onclick="triggerScanAll(this)" style="margin-top:0.5rem">Run all scans now</button>
+    <span id="scan-all-status" style="margin-left:0.75rem;font-size:0.82rem"></span>
+  </div>
+</div>
+
+<!-- Add Route Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Route</h3>
+      <button class="modal-close" onclick="closeModal('add-modal')">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Name (optional — auto-generated if blank)</label>
+      <input type="text" id="route-name" placeholder="e.g. Barnes → Waterloo">
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Stations (type CRS code or name, press Enter to add)</label>
+      <div class="autocomplete-wrapper">
+        <div class="crs-input-area" id="crs-input-area" onclick="document.getElementById('crs-text').focus()">
+          <input class="crs-text-input" id="crs-text" placeholder="BNS…" autocomplete="off">
+        </div>
+        <div class="autocomplete-list" id="autocomplete-list" style="display:none"></div>
+      </div>
+      <div class="info-msg">First = origin, last = destination, middle = waypoints</div>
+      <div class="error-msg" id="crs-error"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Scan days</label>
+      <div class="checkbox-group" id="scan-days-group">
+        <label><input type="checkbox" name="scan_day" value="0"> Mon</label>
+        <label><input type="checkbox" name="scan_day" value="1"> Tue</label>
+        <label><input type="checkbox" name="scan_day" value="2"> Wed</label>
+        <label><input type="checkbox" name="scan_day" value="3"> Thu</label>
+        <label><input type="checkbox" name="scan_day" value="4"> Fri</label>
+        <label><input type="checkbox" name="scan_day" value="5" checked> Sat</label>
+        <label><input type="checkbox" name="scan_day" value="6" checked> Sun</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Lookahead weeks</label>
+        <input type="number" id="lookahead-weeks" value="4" min="1" max="52" style="width:80px">
+      </div>
+      <div class="form-group">
+        <label>Duration threshold %</label>
+        <input type="number" id="threshold-pct" value="20" min="5" max="100" style="width:80px">
+      </div>
+      <div class="form-group">
+        <label>Show on kiosk</label>
+        <select id="kiosk-visible">
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+    </div>
+    <div class="error-msg" id="add-error"></div>
+    <div style="margin-top:1rem;display:flex;gap:0.5rem">
+      <button onclick="submitAddRoute(this)">Add Route</button>
+      <button class="btn-ghost" onclick="closeModal('add-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Baseline Modal -->
+<div class="modal-overlay" id="baseline-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Set Baseline</h3>
+      <button class="modal-close" onclick="closeModal('baseline-modal')">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Route</label>
+      <div id="baseline-route-name" style="font-weight:600;margin-top:0.2rem"></div>
+    </div>
+
+    <!-- Step 1: date + fetch -->
+    <div id="baseline-step1">
+      <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched across three time windows (morning, midday, evening).</p>
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Baseline date</label>
+        <input type="date" id="baseline-date">
+      </div>
+      <div class="error-msg" id="baseline-error"></div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+        <button onclick="fetchBaselineOptions(this)">Find journey options</button>
+        <button class="btn-ghost" onclick="closeModal('baseline-modal')">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 2: option picker -->
+    <div id="baseline-step2" style="display:none">
+      <p class="info-msg" style="margin-bottom:0.75rem">Select the journey to use as the baseline for each time slot.</p>
+      <div id="baseline-options-body"></div>
+      <div class="error-msg" id="baseline-confirm-error"></div>
+      <div style="display:flex;gap:0.5rem;margin-top:1rem">
+        <button onclick="confirmBaseline(this)">Confirm baseline</button>
+        <button class="btn-ghost" onclick="showBaselineStep1()">Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit Route</h3>
+      <button class="modal-close" onclick="closeModal('edit-modal')">✕</button>
+    </div>
+    <input type="hidden" id="edit-route-id">
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Name</label>
+      <input type="text" id="edit-name">
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Scan days</label>
+      <div class="checkbox-group" id="edit-scan-days-group">
+        <label><input type="checkbox" name="edit_scan_day" value="0"> Mon</label>
+        <label><input type="checkbox" name="edit_scan_day" value="1"> Tue</label>
+        <label><input type="checkbox" name="edit_scan_day" value="2"> Wed</label>
+        <label><input type="checkbox" name="edit_scan_day" value="3"> Thu</label>
+        <label><input type="checkbox" name="edit_scan_day" value="4"> Fri</label>
+        <label><input type="checkbox" name="edit_scan_day" value="5"> Sat</label>
+        <label><input type="checkbox" name="edit_scan_day" value="6"> Sun</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Lookahead weeks</label>
+        <input type="number" id="edit-lookahead" min="1" max="52" style="width:80px">
+      </div>
+      <div class="form-group">
+        <label>Duration threshold %</label>
+        <input type="number" id="edit-threshold" min="5" max="100" style="width:80px">
+      </div>
+      <div class="form-group">
+        <label>Show on kiosk</label>
+        <select id="edit-kiosk">
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+    </div>
+    <div class="error-msg" id="edit-error"></div>
+    <div style="margin-top:1rem;display:flex;gap:0.5rem">
+      <button onclick="submitEditRoute(this)">Save</button>
+      <button class="btn-ghost" onclick="closeModal('edit-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+let _crsPills = [];
+let _baselineRouteId = null;
+
+// ── Route list ──────────────────────────────────────────
+async function loadRoutes() {
+  const rows = await fetchJSON('/api/routes');
+  const tbody = document.getElementById('routes-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="info-msg" style="text-align:center;padding:1.5rem">No routes yet. Add one above.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><strong>${r.name}</strong><br><span class="info-msg">${r.crs_sequence.join(' → ')}</span></td>
+      <td>${r.scan_days.map(d => DAY_NAMES[d]).join(', ')}</td>
+      <td>${r.lookahead_weeks}w</td>
+      <td>${r.threshold_pct}%</td>
+      <td>${r.has_baseline ? '<span class="badge badge-NORMAL">Yes</span>' : '<span class="badge badge-UNKNOWN">No</span>'}</td>
+      <td>${r.last_scanned_at ? r.last_scanned_at.replace('T',' ').slice(0,16) + ' UTC' : '—'}</td>
+      <td>${r.kiosk_visible ? '✓' : ''}</td>
+      <td>
+        <div class="route-actions">
+          <button class="btn-ghost" onclick="openBaselineModal(${r.id}, '${r.name}')">Baseline</button>
+          <button class="btn-ghost" onclick="triggerScan(${r.id}, this)">Scan</button>
+          <button class="btn-ghost" onclick="openEditModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
+          <button class="btn-danger btn-ghost" onclick="deleteRoute(${r.id}, '${r.name.replace(/'/g,'\\\'') }')">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── Add route modal ──────────────────────────────────────
+function openAddModal() {
+  _crsPills = [];
+  renderPills();
+  document.getElementById('route-name').value = '';
+  document.getElementById('crs-error').textContent = '';
+  document.getElementById('add-error').textContent = '';
+  openModal('add-modal');
+}
+
+function renderPills() {
+  const area = document.getElementById('crs-input-area');
+  const input = document.getElementById('crs-text');
+  area.querySelectorAll('.crs-pill').forEach(p => p.remove());
+  _crsPills.forEach((crs, i) => {
+    const pill = document.createElement('span');
+    pill.className = 'crs-pill';
+    pill.innerHTML = `${crs} <span class="remove" onclick="removePill(${i})">✕</span>`;
+    area.insertBefore(pill, input);
+  });
+}
+
+function removePill(i) {
+  _crsPills.splice(i, 1);
+  renderPills();
+}
+
+let _autocompleteTimeout = null;
+document.getElementById('crs-text').addEventListener('input', function() {
+  clearTimeout(_autocompleteTimeout);
+  const q = this.value.trim();
+  if (q.length < 1) { hideAutocomplete(); return; }
+  _autocompleteTimeout = setTimeout(() => fetchAutocomplete(q), 200);
+});
+
+document.getElementById('crs-text').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = this.value.trim().toUpperCase();
+    if (val) addCrsPill(val);
+  }
+  if (e.key === 'Backspace' && this.value === '' && _crsPills.length) {
+    _crsPills.pop();
+    renderPills();
+  }
+  if (e.key === 'ArrowDown') focusAutocomplete(1);
+  if (e.key === 'ArrowUp') focusAutocomplete(-1);
+});
+
+async function fetchAutocomplete(q) {
+  const items = await fetchJSON(`/api/stations/search?q=${encodeURIComponent(q)}`).catch(() => []);
+  const list = document.getElementById('autocomplete-list');
+  if (!items.length) { list.style.display = 'none'; return; }
+  list.innerHTML = items.map(s => `
+    <div class="autocomplete-item" onclick="selectAutocomplete('${s.crs}')">
+      ${s.name} <span class="crs-code">${s.crs}</span>
+    </div>`).join('');
+  list.style.display = 'block';
+}
+
+function selectAutocomplete(crs) {
+  addCrsPill(crs);
+  hideAutocomplete();
+}
+
+function addCrsPill(crs) {
+  _crsPills.push(crs.toUpperCase());
+  renderPills();
+  document.getElementById('crs-text').value = '';
+}
+
+function hideAutocomplete() {
+  document.getElementById('autocomplete-list').style.display = 'none';
+}
+
+function focusAutocomplete(dir) {
+  const items = document.querySelectorAll('#autocomplete-list .autocomplete-item');
+  const active = document.querySelector('#autocomplete-list .autocomplete-item.active');
+  let idx = Array.from(items).indexOf(active) + dir;
+  idx = Math.max(0, Math.min(items.length - 1, idx));
+  items.forEach(i => i.classList.remove('active'));
+  if (items[idx]) {
+    items[idx].classList.add('active');
+    items[idx].scrollIntoView({block:'nearest'});
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.autocomplete-wrapper')) hideAutocomplete();
+});
+
+async function submitAddRoute(btn) {
+  const crs = [..._crsPills];
+  if (crs.length < 2) {
+    document.getElementById('crs-error').textContent = 'Add at least 2 stations.';
+    return;
+  }
+  const scan_days = Array.from(document.querySelectorAll('[name="scan_day"]:checked')).map(c => +c.value);
+  if (!scan_days.length) {
+    document.getElementById('add-error').textContent = 'Select at least one scan day.';
+    return;
+  }
+  btn.disabled = true;
+  const err = document.getElementById('add-error');
+  err.textContent = '';
+  try {
+    await postJSON('/api/routes', {
+      name: document.getElementById('route-name').value.trim(),
+      crs_sequence: crs,
+      scan_days,
+      lookahead_weeks: +document.getElementById('lookahead-weeks').value,
+      threshold_pct: +document.getElementById('threshold-pct').value,
+      kiosk_visible: document.getElementById('kiosk-visible').value === 'true',
+    });
+    closeModal('add-modal');
+    loadRoutes();
+  } catch (e) {
+    const detail = e.detail;
+    if (detail && detail.invalid_crs) {
+      err.textContent = 'Invalid CRS codes: ' + detail.invalid_crs.join(', ');
+    } else {
+      err.textContent = e.message || 'Error adding route.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Baseline modal ──────────────────────────────────────
+let _baselineOptions = null;
+
+function openBaselineModal(routeId, routeName) {
+  _baselineRouteId = routeId;
+  _baselineOptions = null;
+  document.getElementById('baseline-route-name').textContent = routeName;
+  document.getElementById('baseline-error').textContent = '';
+  document.getElementById('baseline-date').value = '';
+  showBaselineStep1();
+  openModal('baseline-modal');
+}
+
+function showBaselineStep1() {
+  document.getElementById('baseline-step1').style.display = '';
+  document.getElementById('baseline-step2').style.display = 'none';
+}
+
+function fmtDuration(s) {
+  if (!s) return '?';
+  const totalMin = Math.floor(s / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h ? `${h}h${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+function fmtStops(steps) {
+  if (!steps.length) return 'No legs';
+  return [steps[0].dep_stop, ...steps.map(s => s.arr_stop)].join(' → ');
+}
+
+async function fetchBaselineOptions(btn) {
+  const date = document.getElementById('baseline-date').value;
+  if (!date) { document.getElementById('baseline-error').textContent = 'Choose a date.'; return; }
+  const err = document.getElementById('baseline-error');
+  err.textContent = '';
+  btn.disabled = true;
+  btn.innerHTML = 'Fetching options… <span class="spinner"></span>';
+  try {
+    const data = await postJSON(`/api/routes/${_baselineRouteId}/baseline/options`, { baseline_date: date });
+    _baselineOptions = data.options;
+    renderBaselineOptions(data.options);
+    document.getElementById('baseline-step1').style.display = 'none';
+    document.getElementById('baseline-step2').style.display = '';
+  } catch (e) {
+    err.textContent = e.message || 'Error fetching options.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Find journey options';
+  }
+}
+
+function renderBaselineOptions(options) {
+  const slots = ['08:00', '13:00', '18:00'];
+  const body = document.getElementById('baseline-options-body');
+  body.innerHTML = slots.map(slot => {
+    const opts = options[slot] || [];
+    if (!opts.length) {
+      return `<div class="baseline-slot"><div class="baseline-slot-label">${slot}</div><div class="info-msg">No service found for this slot.</div></div>`;
+    }
+    const name = `bl_${slot.replace(':', '')}`;
+    const radios = opts.map((o, i) => `
+      <label class="baseline-option${i === 0 ? ' selected' : ''}">
+        <input type="radio" name="${name}" value="${i}" ${i === 0 ? 'checked' : ''}>
+        <span class="baseline-option-inner">
+          <span class="baseline-option-duration">${fmtDuration(o.duration_s)}</span>
+          <span class="baseline-option-stops">${fmtStops(o.steps)}</span>
+        </span>
+      </label>`).join('');
+    return `<div class="baseline-slot">
+      <div class="baseline-slot-label">${slot}</div>
+      <div class="baseline-option-group">${radios}</div>
+    </div>`;
+  }).join('');
+
+  body.querySelectorAll('.baseline-option input[type=radio]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const group = radio.closest('.baseline-option-group');
+      group.querySelectorAll('.baseline-option').forEach(l => l.classList.remove('selected'));
+      radio.closest('.baseline-option').classList.add('selected');
+    });
+  });
+}
+
+async function confirmBaseline(btn) {
+  const date = document.getElementById('baseline-date').value;
+  const selections = {};
+  for (const slot of ['08:00', '13:00', '18:00']) {
+    const name = `bl_${slot.replace(':', '')}`;
+    const radio = document.querySelector(`[name="${name}"]:checked`);
+    const idx = radio ? +radio.value : 0;
+    const opts = (_baselineOptions && _baselineOptions[slot]) || [];
+    if (opts[idx]) selections[slot] = opts[idx];
+  }
+  const err = document.getElementById('baseline-confirm-error');
+  err.textContent = '';
+  btn.disabled = true;
+  btn.innerHTML = 'Saving… <span class="spinner"></span>';
+  try {
+    await postJSON(`/api/routes/${_baselineRouteId}/baseline/confirm`, { baseline_date: date, selections });
+    closeModal('baseline-modal');
+    loadRoutes();
+  } catch (e) {
+    err.textContent = e.message || 'Error saving baseline.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirm baseline';
+  }
+}
+
+// ── Edit modal ──────────────────────────────────────────
+function openEditModal(route) {
+  document.getElementById('edit-route-id').value = route.id;
+  document.getElementById('edit-name').value = route.name;
+  document.getElementById('edit-lookahead').value = route.lookahead_weeks;
+  document.getElementById('edit-threshold').value = route.threshold_pct;
+  document.getElementById('edit-kiosk').value = route.kiosk_visible ? 'true' : 'false';
+  document.querySelectorAll('[name="edit_scan_day"]').forEach(cb => {
+    cb.checked = route.scan_days.includes(+cb.value);
+  });
+  document.getElementById('edit-error').textContent = '';
+  openModal('edit-modal');
+}
+
+async function submitEditRoute(btn) {
+  const id = document.getElementById('edit-route-id').value;
+  const scan_days = Array.from(document.querySelectorAll('[name="edit_scan_day"]:checked')).map(c => +c.value);
+  btn.disabled = true;
+  try {
+    await patchJSON(`/api/routes/${id}`, {
+      name: document.getElementById('edit-name').value.trim(),
+      scan_days,
+      lookahead_weeks: +document.getElementById('edit-lookahead').value,
+      threshold_pct: +document.getElementById('edit-threshold').value,
+      kiosk_visible: document.getElementById('edit-kiosk').value === 'true',
+    });
+    closeModal('edit-modal');
+    loadRoutes();
+  } catch (e) {
+    document.getElementById('edit-error').textContent = e.message || 'Error saving.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Scanning ────────────────────────────────────────────
+async function triggerScan(routeId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = 'Scanning… <span class="spinner"></span>';
+  try {
+    await postJSON(`/api/routes/${routeId}/scan`, {});
+    loadRoutes();
+  } catch (e) {
+    alert('Scan failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan';
+  }
+}
+
+async function triggerScanAll(btn) {
+  btn.disabled = true;
+  const status = document.getElementById('scan-all-status');
+  status.innerHTML = 'Starting… <span class="spinner"></span>';
+  try {
+    await postJSON('/api/scan-all', {});
+    status.textContent = 'Scan started in background.';
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteRoute(routeId, name) {
+  if (!confirm(`Delete route "${name}"? This removes all scan results and baselines.`)) return;
+  try {
+    await deleteReq(`/api/routes/${routeId}`);
+    loadRoutes();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+loadRoutes();
+</script>
+{% endblock %}

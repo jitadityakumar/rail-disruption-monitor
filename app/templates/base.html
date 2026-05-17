@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Rail Monitor{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav>
+    <span class="nav-title">Rail Monitor</span>
+    <a href="/admin" class="{{ 'active' if request.url.path == '/admin' else '' }}">Admin</a>
+    <a href="/reports" class="{{ 'active' if request.url.path == '/reports' else '' }}">Reports</a>
+    <a href="/display" class="{{ 'active' if request.url.path == '/display' else '' }}">Display</a>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Reports — Rail Monitor{% endblock %}
+{% block content %}
+
+<div class="section">
+  <div class="section-header">
+    <h2>Disruption Reports</h2>
+    <span class="info-msg" id="reports-updated"></span>
+  </div>
+  <div id="reports-container">
+    <div class="info-msg" style="text-align:center;padding:2rem">Loading…</div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="detail-title">Detail</h3>
+      <button class="modal-close" onclick="closeModal('detail-modal')">✕</button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const SLOTS = ['08:00','13:00','18:00'];
+const STATUS_ORDER = { DISRUPTED: 0, UNKNOWN: 1, NORMAL: 2 };
+
+async function loadReports() {
+  const routes = await fetchJSON('/api/reports').catch(() => []);
+  const container = document.getElementById('reports-container');
+  document.getElementById('reports-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB');
+
+  if (!routes.length) {
+    container.innerHTML = '<div class="info-msg" style="text-align:center;padding:2rem">No routes configured. <a href="/admin" style="color:var(--accent)">Add one in Admin.</a></div>';
+    return;
+  }
+
+  container.innerHTML = routes.map(route => {
+    const dates = Object.keys(route.results_by_date).sort();
+    const hasDisruption = dates.some(d => Object.values(route.results_by_date[d]).some(s => s.status === 'DISRUPTED'));
+
+    const gridHtml = dates.length ? `
+      <div class="date-grid">
+        ${dates.map(date => `
+          <div class="date-group">
+            <div class="date-label">${formatDate(date)}</div>
+            <div style="display:flex;gap:3px">
+              ${SLOTS.map(slot => {
+                const cell = route.results_by_date[date][slot];
+                const status = cell ? cell.status : 'UNKNOWN';
+                const reasons = cell && cell.disruption_reasons.length ? cell.disruption_reasons.join('; ') : '';
+                return `<div class="grid-cell cell-${status}" title="${slot} — ${status}${reasons ? ': ' + reasons : ''}" onclick="showDetail(${route.id},'${date}','${slot}')"></div>`;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">Columns: 08:00 / 13:00 / 18:00 — click any cell for detail</div>
+    ` : '<div class="info-msg">No scan results yet. Run a scan from Admin.</div>';
+
+    return `
+      <div class="card" style="${hasDisruption ? 'border-color:var(--red)' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
+          <div>
+            <strong>${route.name}</strong>
+            <span class="tag" style="margin-left:0.5rem">${route.crs_sequence.join(' → ')}</span>
+          </div>
+          <div class="info-msg" style="font-size:0.78rem">
+            ${route.last_scanned_at ? 'Scanned ' + route.last_scanned_at.slice(0,10) : 'Never scanned'}
+          </div>
+        </div>
+        ${gridHtml}
+      </div>`;
+  }).join('');
+}
+
+function formatDate(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+async function showDetail(routeId, date, slot) {
+  const data = await fetchJSON(`/api/reports/${routeId}`);
+  const result = data.results.find(r => r.target_date === date && r.time_slot === slot);
+  document.getElementById('detail-title').textContent = `${data.route.name} — ${formatDate(date)} ${slot}`;
+
+  if (!result) {
+    document.getElementById('detail-body').innerHTML = '<div class="info-msg">No data for this slot.</div>';
+  } else {
+    const reasons = result.disruption_reasons;
+    const steps = result.steps;
+    document.getElementById('detail-body').innerHTML = `
+      <div style="margin-bottom:0.75rem">
+        <span class="badge badge-${result.status}">${result.status}</span>
+        ${result.duration_s ? `<span class="info-msg" style="margin-left:0.75rem">${Math.round(result.duration_s/60)} min total</span>` : ''}
+      </div>
+      ${reasons.length ? `
+        <div style="margin-bottom:0.75rem">
+          <strong style="font-size:0.85rem">Disruption reasons:</strong>
+          <ul style="margin:0.4rem 0 0;padding-left:1.2rem;font-size:0.85rem">
+            ${reasons.map(r => `<li>${r}</li>`).join('')}
+          </ul>
+        </div>` : ''}
+      ${steps.length ? `
+        <div>
+          <strong style="font-size:0.85rem">Journey legs:</strong>
+          <table style="margin-top:0.5rem">
+            <thead><tr><th>From</th><th>To</th><th>Type</th><th>Operator</th><th>Line</th></tr></thead>
+            <tbody>
+              ${steps.map(s => `
+                <tr>
+                  <td>${s.dep_stop}</td>
+                  <td>${s.arr_stop}</td>
+                  <td><span class="badge ${s.vehicle_type === 'BUS' ? 'badge-DISRUPTED' : 'badge-NORMAL'}">${s.vehicle_type}</span></td>
+                  <td>${s.operator}</td>
+                  <td>${s.line_name}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+      <div class="info-msg" style="margin-top:0.75rem;font-size:0.75rem">
+        Scanned at ${result.scanned_at} UTC
+        <br><em>NORMAL status may be stale if Google hasn't updated engineering data yet.</em>
+      </div>`;
+  }
+  openModal('detail-modal');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+loadReports();
+</script>
+{% endblock %}

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rail Monitor — Display</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="display-page">
+  <div class="display-header">
+    <div>
+      <div class="display-title">Rail Disruption Monitor</div>
+      <div class="display-date" id="display-date"></div>
+    </div>
+    <div style="text-align:right">
+      <div class="display-clock" id="display-clock"></div>
+    </div>
+  </div>
+
+  <div id="display-content">
+    <div class="info-msg" style="text-align:center;padding:3rem">Loading…</div>
+  </div>
+
+  <div class="display-footer" id="display-footer"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+function updateClock() {
+  const now = new Date();
+  document.getElementById('display-clock').textContent =
+    now.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('display-date').textContent =
+    now.toLocaleDateString('en-GB', { timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function formatDate(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+async function loadDisplay() {
+  const routes = await fetchJSON('/api/display').catch(() => []);
+  const content = document.getElementById('display-content');
+
+  if (!routes.length) {
+    content.innerHTML = '<div class="info-msg" style="text-align:center;padding:3rem">No kiosk routes configured.</div>';
+    return;
+  }
+
+  content.innerHTML = routes.map(route => {
+    const hasDisruption = route.disruptions.length > 0;
+    const disruptionHtml = hasDisruption
+      ? route.disruptions.map(d => `
+          <div class="disruption-row">
+            <div class="disruption-date">${formatDate(d.date)}</div>
+            <div class="disruption-slots">
+              ${d.slots.map(s => {
+                const reasons = s.disruption_reasons.join(' · ');
+                return `<div>${s.time_slot}${reasons ? ' — ' + reasons : ''}</div>`;
+              }).join('')}
+            </div>
+          </div>`).join('')
+      : '<div class="no-disruptions">No disruptions detected in scan window</div>';
+
+    return `
+      <div class="route-display-card ${hasDisruption ? 'has-disruption' : ''}">
+        <div class="route-name">
+          ${route.name}
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${route.crs_sequence.join(' → ')}</span>
+        </div>
+        ${disruptionHtml}
+      </div>`;
+  }).join('');
+
+  const scannedAt = routes.find(r => r.last_scanned_at)?.last_scanned_at;
+  document.getElementById('display-footer').textContent =
+    scannedAt ? `Last scan: ${scannedAt.slice(0,16)} UTC · Refreshes every 5 minutes` : 'Refreshes every 5 minutes';
+}
+
+updateClock();
+setInterval(updateClock, 1000);
+loadDisplay();
+setInterval(loadDisplay, 300000);
+</script>
+</body>
+</html>
