@@ -141,7 +141,7 @@ def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
     def _to_dict(sel):
         if sel is None:
             return None
-        return {"duration_s": sel.duration_s, "steps": sel.steps, "arr_stop": sel.arr_stop}
+        return {"duration_s": sel.duration_s, "steps": sel.steps, "dep_stop": sel.dep_stop, "arr_stop": sel.arr_stop}
 
     try:
         confirm_baseline(route_id, body.baseline_date, {
@@ -165,11 +165,12 @@ def get_baseline(route_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="No baseline for this route")
 
-    def _leg(dur_col, steps_col, arr_col):
+    def _leg(dur_col, steps_col, dep_col, arr_col):
         if not row[arr_col]:
             return None
         return {
             "duration_s": row[dur_col],
+            "dep_stop": row[dep_col],
             "arr_stop": row[arr_col],
             "steps": json.loads(row[steps_col] or "[]"),
         }
@@ -177,10 +178,10 @@ def get_baseline(route_id: int):
     return {
         "baseline_date": row["baseline_date"],
         "captured_at": row["captured_at"],
-        "outbound_leg1": _leg("outbound_leg1_duration_s", "outbound_leg1_steps", "outbound_leg1_arr_stop"),
-        "outbound_leg2": _leg("outbound_leg2_duration_s", "outbound_leg2_steps", "outbound_leg2_arr_stop"),
-        "return_leg1":   _leg("return_leg1_duration_s",   "return_leg1_steps",   "return_leg1_arr_stop"),
-        "return_leg2":   _leg("return_leg2_duration_s",   "return_leg2_steps",   "return_leg2_arr_stop"),
+        "outbound_leg1": _leg("outbound_leg1_duration_s", "outbound_leg1_steps", "outbound_leg1_dep_stop", "outbound_leg1_arr_stop"),
+        "outbound_leg2": _leg("outbound_leg2_duration_s", "outbound_leg2_steps", "outbound_leg2_dep_stop", "outbound_leg2_arr_stop"),
+        "return_leg1":   _leg("return_leg1_duration_s",   "return_leg1_steps",   "return_leg1_dep_stop",   "return_leg1_arr_stop"),
+        "return_leg2":   _leg("return_leg2_duration_s",   "return_leg2_steps",   "return_leg2_dep_stop",   "return_leg2_arr_stop"),
     }
 
 

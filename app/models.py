@@ -87,6 +87,7 @@ class BaselineTrigger(BaseModel):
 class LegSelection(BaseModel):
     duration_s: Optional[int] = None
     steps: list = []
+    dep_stop: Optional[str] = None
     arr_stop: Optional[str] = None
 
 

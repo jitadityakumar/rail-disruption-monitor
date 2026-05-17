@@ -60,6 +60,7 @@ def _fetch_leg_options(origin_crs: str, dest_crs: str, baseline_date: str, route
                 options.append({
                     "duration_s": parse_duration_s(route),
                     "steps": steps,
+                    "dep_stop": steps[0]["dep_stop"],
                     "arr_stop": steps[-1]["arr_stop"],
                 })
         time.sleep(0.3)
@@ -103,27 +104,32 @@ def confirm_baseline(route_id: int, baseline_date: str, selections: dict) -> Non
 
         def _vals(sel):
             if sel is None:
-                return None, None, None
-            return sel.get("duration_s"), json.dumps(sel.get("steps", [])), sel.get("arr_stop") or None
+                return None, None, None, None
+            return (
+                sel.get("duration_s"),
+                json.dumps(sel.get("steps", [])),
+                sel.get("dep_stop") or None,
+                sel.get("arr_stop") or None,
+            )
 
-        ol1_dur, ol1_steps, ol1_arr = _vals(selections.get("outbound_leg1"))
-        ol2_dur, ol2_steps, ol2_arr = _vals(selections.get("outbound_leg2"))
-        rl1_dur, rl1_steps, rl1_arr = _vals(selections.get("return_leg1"))
-        rl2_dur, rl2_steps, rl2_arr = _vals(selections.get("return_leg2"))
+        ol1_dur, ol1_steps, ol1_dep, ol1_arr = _vals(selections.get("outbound_leg1"))
+        ol2_dur, ol2_steps, ol2_dep, ol2_arr = _vals(selections.get("outbound_leg2"))
+        rl1_dur, rl1_steps, rl1_dep, rl1_arr = _vals(selections.get("return_leg1"))
+        rl2_dur, rl2_steps, rl2_dep, rl2_arr = _vals(selections.get("return_leg2"))
 
         db.execute(
             """INSERT OR REPLACE INTO baselines
                (route_id, baseline_date,
-                outbound_leg1_duration_s, outbound_leg1_steps, outbound_leg1_arr_stop,
-                outbound_leg2_duration_s, outbound_leg2_steps, outbound_leg2_arr_stop,
-                return_leg1_duration_s, return_leg1_steps, return_leg1_arr_stop,
-                return_leg2_duration_s, return_leg2_steps, return_leg2_arr_stop)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                outbound_leg1_duration_s, outbound_leg1_steps, outbound_leg1_dep_stop, outbound_leg1_arr_stop,
+                outbound_leg2_duration_s, outbound_leg2_steps, outbound_leg2_dep_stop, outbound_leg2_arr_stop,
+                return_leg1_duration_s,   return_leg1_steps,   return_leg1_dep_stop,   return_leg1_arr_stop,
+                return_leg2_duration_s,   return_leg2_steps,   return_leg2_dep_stop,   return_leg2_arr_stop)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (route_id, baseline_date,
-             ol1_dur, ol1_steps, ol1_arr,
-             ol2_dur, ol2_steps, ol2_arr,
-             rl1_dur, rl1_steps, rl1_arr,
-             rl2_dur, rl2_steps, rl2_arr),
+             ol1_dur, ol1_steps, ol1_dep, ol1_arr,
+             ol2_dur, ol2_steps, ol2_dep, ol2_arr,
+             rl1_dur, rl1_steps, rl1_dep, rl1_arr,
+             rl2_dur, rl2_steps, rl2_dep, rl2_arr),
         )
         db.commit()
     finally:
@@ -148,25 +154,29 @@ def scan_route(route_id: int) -> dict:
     threshold_pct = row["threshold_pct"]
     scan_days = [int(d) for d in row["scan_days"].split(",")]
 
-    # (direction, leg, origin_crs, dest_crs, baseline_arr_stop, baseline_duration_s)
+    # (direction, leg, origin_crs, dest_crs, baseline_dep_stop, baseline_arr_stop, baseline_duration_s)
     leg_configs = [
         ("outbound", 1,
          origin_crs, change_crs if has_change else dest_crs,
+         baseline["outbound_leg1_dep_stop"],
          baseline["outbound_leg1_arr_stop"],
          baseline["outbound_leg1_duration_s"]),
     ]
     if has_change:
         leg_configs.append(("outbound", 2,
             change_crs, dest_crs,
+            baseline["outbound_leg2_dep_stop"],
             baseline["outbound_leg2_arr_stop"],
             baseline["outbound_leg2_duration_s"]))
     leg_configs.append(("return", 1,
         dest_crs, change_crs if has_change else origin_crs,
+        baseline["return_leg1_dep_stop"],
         baseline["return_leg1_arr_stop"],
         baseline["return_leg1_duration_s"]))
     if has_change:
         leg_configs.append(("return", 2,
             change_crs, origin_crs,
+            baseline["return_leg2_dep_stop"],
             baseline["return_leg2_arr_stop"],
             baseline["return_leg2_duration_s"]))
 
@@ -181,13 +191,13 @@ def scan_route(route_id: int) -> dict:
     counts = {"NORMAL": 0, "DISRUPTED": 0, "UNKNOWN": 0}
     for target_date in target_dates:
         date_str = target_date.isoformat()
-        for direction, leg, o_crs, d_crs, bl_arr_stop, bl_duration_s in leg_configs:
+        for direction, leg, o_crs, d_crs, bl_dep_stop, bl_arr_stop, bl_duration_s in leg_configs:
             origin_lat, origin_lon = get_coords(o_crs)
             dest_lat, dest_lon = get_coords(d_crs)
             _query_and_compare(
                 route_id,
                 (origin_lat, origin_lon), (dest_lat, dest_lon),
-                bl_arr_stop, date_str, direction, leg,
+                bl_dep_stop, bl_arr_stop, date_str, direction, leg,
                 bl_duration_s, threshold_pct,
             )
             status = _last_status(route_id, date_str, direction, leg)
@@ -220,6 +230,7 @@ def _query_and_compare(
     route_id: int,
     origin: tuple,
     dest: tuple,
+    baseline_dep_stop: str | None,
     baseline_arr_stop: str,
     target_date: str,
     direction: str,
@@ -231,8 +242,8 @@ def _query_and_compare(
         _save_result(route_id, target_date, direction, leg, "UNKNOWN", None, [], ["No baseline arrival stop recorded"])
         return
 
-    found_direct = None
-    any_bus = False
+    found_direct = None       # single RAIL step, correct dep+arr
+    found_direct_bus = None   # single BUS step, correct dep+arr
     got_any_routes = False
 
     for offset in (0, 30, 60, 90, 120):
@@ -247,23 +258,31 @@ def _query_and_compare(
             got_any_routes = True
         for route in routes:
             steps = parse_transit_steps(route)
-            if any(s["vehicle_type"] in BUS_VEHICLE_TYPES for s in steps):
-                any_bus = True
-            # Valid direct train: single RAIL step arriving at the baseline stop
-            if (len(steps) == 1
-                    and steps[0]["vehicle_type"] in RAIL_VEHICLE_TYPES
-                    and steps[0]["arr_stop"] == baseline_arr_stop):
+            # Any change (multiple legs) means no direct service — skip entirely
+            if len(steps) != 1:
+                continue
+            step = steps[0]
+            # dep_stop must match baseline if we have one (skip if departing from wrong station)
+            if baseline_dep_stop and step["dep_stop"] != baseline_dep_stop:
+                continue
+            if step["arr_stop"] != baseline_arr_stop:
+                continue
+            if step["vehicle_type"] in RAIL_VEHICLE_TYPES:
                 found_direct = (route, steps)
                 break
+            if step["vehicle_type"] in BUS_VEHICLE_TYPES and found_direct_bus is None:
+                found_direct_bus = (route, steps)
         if found_direct:
             break
 
     if found_direct is None:
         if not got_any_routes:
             _save_result(route_id, target_date, direction, leg, "UNKNOWN", None, [], ["No routes returned by API"])
+        elif found_direct_bus is not None:
+            _save_result(route_id, target_date, direction, leg, "DISRUPTED",
+                         None, found_direct_bus[1], ["Rail replacement bus detected"])
         else:
-            reason = "Rail replacement bus detected" if any_bus else "No direct service found"
-            _save_result(route_id, target_date, direction, leg, "DISRUPTED", None, [], [reason])
+            _save_result(route_id, target_date, direction, leg, "DISRUPTED", None, [], ["No direct service found"])
         return
 
     route, steps = found_direct
