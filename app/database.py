@@ -15,20 +15,13 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_db()
     try:
-        # Migrate old 3-slot schema to bidirectional noon-scan schema
-        scan_cols = {r[1] for r in conn.execute("PRAGMA table_info(scan_results)").fetchall()}
-        if "time_slot" in scan_cols:
-            conn.execute("DROP TABLE IF EXISTS scan_results")
-        baseline_cols = {r[1] for r in conn.execute("PRAGMA table_info(baselines)").fetchall()}
-        if "slot_08_duration_s" in baseline_cols:
-            conn.execute("DROP TABLE IF EXISTS baselines")
-        conn.commit()
-
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS routes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 name            TEXT NOT NULL,
-                crs_sequence    TEXT NOT NULL,
+                origin_crs      TEXT NOT NULL,
+                change_crs      TEXT,
+                destination_crs TEXT NOT NULL,
                 scan_days       TEXT NOT NULL DEFAULT '5,6',
                 lookahead_weeks INTEGER NOT NULL DEFAULT 4,
                 threshold_pct   INTEGER NOT NULL DEFAULT 20,
@@ -45,14 +38,22 @@ def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS baselines (
-                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-                baseline_date       TEXT NOT NULL,
-                outbound_duration_s INTEGER,
-                outbound_steps      TEXT,
-                return_duration_s   INTEGER,
-                return_steps        TEXT,
-                captured_at         TEXT NOT NULL DEFAULT (datetime('now')),
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                route_id                    INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+                baseline_date               TEXT NOT NULL,
+                outbound_leg1_duration_s    INTEGER,
+                outbound_leg1_steps         TEXT,
+                outbound_leg1_arr_stop      TEXT,
+                outbound_leg2_duration_s    INTEGER,
+                outbound_leg2_steps         TEXT,
+                outbound_leg2_arr_stop      TEXT,
+                return_leg1_duration_s      INTEGER,
+                return_leg1_steps           TEXT,
+                return_leg1_arr_stop        TEXT,
+                return_leg2_duration_s      INTEGER,
+                return_leg2_steps           TEXT,
+                return_leg2_arr_stop        TEXT,
+                captured_at                 TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(route_id)
             );
 
@@ -61,12 +62,13 @@ def init_db() -> None:
                 route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 target_date         TEXT NOT NULL,
                 direction           TEXT NOT NULL,
+                leg                 INTEGER NOT NULL DEFAULT 1,
                 status              TEXT NOT NULL,
                 duration_s          INTEGER,
                 steps               TEXT,
                 disruption_reasons  TEXT,
                 scanned_at          TEXT NOT NULL DEFAULT (datetime('now')),
-                UNIQUE(route_id, target_date, direction)
+                UNIQUE(route_id, target_date, direction, leg)
             );
 
             CREATE TABLE IF NOT EXISTS api_usage_log (

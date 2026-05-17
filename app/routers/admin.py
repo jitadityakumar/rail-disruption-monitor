@@ -9,7 +9,7 @@ from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run
-from stations import get_station_name, validate_crs
+from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -35,30 +35,37 @@ def list_routes():
     result = []
     for row in rows:
         d = dict(row)
-        d["crs_sequence"] = json.loads(d["crs_sequence"])
         d["scan_days"] = [int(x) for x in d["scan_days"].split(",")]
         d["kiosk_visible"] = bool(d["kiosk_visible"])
         d["has_baseline"] = row["id"] in baseline_route_ids
+        d["has_change"] = bool(row["change_crs"])
+        d["leg_labels"] = route_leg_labels(row)
+        d["display_name"] = route_display_name(row["origin_crs"], row["destination_crs"], row["change_crs"])
         result.append(d)
     return result
 
 
 @router.post("/api/routes", status_code=201)
 def create_route(body: RouteCreate):
-    invalid = [crs for crs in body.crs_sequence if not validate_crs(crs)]
+    crses = [body.origin_crs]
+    if body.change_crs:
+        crses.append(body.change_crs)
+    crses.append(body.destination_crs)
+    invalid = [crs for crs in crses if not validate_crs(crs)]
     if invalid:
         raise HTTPException(status_code=400, detail={"invalid_crs": invalid})
 
-    name = body.name or " → ".join(
-        get_station_name(crs) or crs for crs in body.crs_sequence
-    )
+    name = body.name or route_display_name(body.origin_crs, body.destination_crs, body.change_crs)
     db = get_db()
     cur = db.execute(
-        """INSERT INTO routes (name, crs_sequence, scan_days, lookahead_weeks, threshold_pct, kiosk_visible)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO routes
+           (name, origin_crs, change_crs, destination_crs, scan_days, lookahead_weeks, threshold_pct, kiosk_visible)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
-            json.dumps(body.crs_sequence),
+            body.origin_crs,
+            body.change_crs,
+            body.destination_crs,
             ",".join(str(d) for d in body.scan_days),
             body.lookahead_weeks,
             body.threshold_pct,
@@ -131,12 +138,18 @@ def baseline_options(route_id: int, body: BaselineTrigger):
 
 @router.post("/api/routes/{route_id}/baseline/confirm")
 def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
+    def _to_dict(sel):
+        if sel is None:
+            return None
+        return {"duration_s": sel.duration_s, "steps": sel.steps, "dep_stop": sel.dep_stop, "arr_stop": sel.arr_stop}
+
     try:
-        confirm_baseline(
-            route_id,
-            body.baseline_date,
-            {direction: {"duration_s": sel.duration_s, "steps": sel.steps} for direction, sel in body.selections.items()},
-        )
+        confirm_baseline(route_id, body.baseline_date, {
+            "outbound_leg1": _to_dict(body.outbound_leg1),
+            "outbound_leg2": _to_dict(body.outbound_leg2),
+            "return_leg1":   _to_dict(body.return_leg1),
+            "return_leg2":   _to_dict(body.return_leg2),
+        })
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -151,19 +164,24 @@ def get_baseline(route_id: int):
     db.close()
     if not row:
         raise HTTPException(status_code=404, detail="No baseline for this route")
+
+    def _leg(dur_col, steps_col, dep_col, arr_col):
+        if not row[arr_col]:
+            return None
+        return {
+            "duration_s": row[dur_col],
+            "dep_stop": row[dep_col],
+            "arr_stop": row[arr_col],
+            "steps": json.loads(row[steps_col] or "[]"),
+        }
+
     return {
         "baseline_date": row["baseline_date"],
         "captured_at": row["captured_at"],
-        "directions": {
-            "outbound": {
-                "duration_s": row["outbound_duration_s"],
-                "steps": json.loads(row["outbound_steps"] or "[]"),
-            },
-            "return": {
-                "duration_s": row["return_duration_s"],
-                "steps": json.loads(row["return_steps"] or "[]"),
-            },
-        },
+        "outbound_leg1": _leg("outbound_leg1_duration_s", "outbound_leg1_steps", "outbound_leg1_dep_stop", "outbound_leg1_arr_stop"),
+        "outbound_leg2": _leg("outbound_leg2_duration_s", "outbound_leg2_steps", "outbound_leg2_dep_stop", "outbound_leg2_arr_stop"),
+        "return_leg1":   _leg("return_leg1_duration_s",   "return_leg1_steps",   "return_leg1_dep_stop",   "return_leg1_arr_stop"),
+        "return_leg2":   _leg("return_leg2_duration_s",   "return_leg2_steps",   "return_leg2_dep_stop",   "return_leg2_arr_stop"),
     }
 
 
@@ -201,7 +219,7 @@ def search_stations(q: str = ""):
 
 @router.get("/api/stations/{crs}")
 def get_station(crs: str):
-    from stations import get_station_name, get_coords, validate_crs
+    from stations import get_coords
     crs = crs.upper()
     if not validate_crs(crs):
         raise HTTPException(status_code=404, detail="Station not found")

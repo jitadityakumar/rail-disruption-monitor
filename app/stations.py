@@ -38,6 +38,38 @@ def get_station_name(crs: str) -> str | None:
     return _STATION_LIST.get(crs.upper())
 
 
+def route_leg_labels(row) -> list[dict]:
+    o = get_station_name(row["origin_crs"]) or row["origin_crs"]
+    d = get_station_name(row["destination_crs"]) or row["destination_crs"]
+    c = (get_station_name(row["change_crs"]) or row["change_crs"]) if row["change_crs"] else None
+    if c:
+        return [
+            {"key": "outbound_1", "label": f"{o} → {c}"},
+            {"key": "outbound_2", "label": f"{c} → {d}"},
+            {"key": "return_1",   "label": f"{d} → {c}"},
+            {"key": "return_2",   "label": f"{c} → {o}"},
+        ]
+    return [
+        {"key": "outbound_1", "label": f"{o} → {d}"},
+        {"key": "return_1",   "label": f"{d} → {o}"},
+    ]
+
+
+def leg_label(row, direction: str, leg: int) -> str:
+    key = f"{direction}_{leg}"
+    match = next((l["label"] for l in route_leg_labels(row) if l["key"] == key), None)
+    return match or f"{direction} leg {leg}"
+
+
+def route_display_name(origin_crs: str, destination_crs: str, change_crs: str | None = None) -> str:
+    o = get_station_name(origin_crs) or origin_crs
+    d = get_station_name(destination_crs) or destination_crs
+    if change_crs:
+        c = get_station_name(change_crs) or change_crs
+        return f"{o} to {d} via {c}"
+    return f"{o} to {d}"
+
+
 def get_coords(crs: str) -> tuple[float, float]:
     crs = crs.upper()
     db = get_db()
