@@ -78,24 +78,26 @@ def capture_baseline(route_id: int, baseline_date: str) -> dict:
         time.sleep(0.2)
 
     db = get_db()
-    db.execute(
-        """INSERT OR REPLACE INTO baselines
-           (route_id, baseline_date,
-            slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
-            slot_08_steps, slot_13_steps, slot_18_steps)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            route_id, baseline_date,
-            slot_data["08:00"]["duration_s"],
-            slot_data["13:00"]["duration_s"],
-            slot_data["18:00"]["duration_s"],
-            json.dumps(slot_data["08:00"]["steps"]),
-            json.dumps(slot_data["13:00"]["steps"]),
-            json.dumps(slot_data["18:00"]["steps"]),
-        ),
-    )
-    db.commit()
-    db.close()
+    try:
+        db.execute(
+            """INSERT OR REPLACE INTO baselines
+               (route_id, baseline_date,
+                slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
+                slot_08_steps, slot_13_steps, slot_18_steps)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                route_id, baseline_date,
+                slot_data["08:00"]["duration_s"],
+                slot_data["13:00"]["duration_s"],
+                slot_data["18:00"]["duration_s"],
+                json.dumps(slot_data["08:00"]["steps"]),
+                json.dumps(slot_data["13:00"]["steps"]),
+                json.dumps(slot_data["18:00"]["steps"]),
+            ),
+        )
+        db.commit()
+    finally:
+        db.close()
     return results
 
 
@@ -132,32 +134,33 @@ def fetch_baseline_options(route_id: int, baseline_date: str) -> dict:
 
 def confirm_baseline(route_id: int, baseline_date: str, selections: dict) -> None:
     db = get_db()
-    if not db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone():
-        db.close()
-        raise ValueError(f"Route {route_id} not found")
+    try:
+        if not db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone():
+            raise ValueError(f"Route {route_id} not found")
 
-    slot_data = {
-        slot: selections.get(slot, {"duration_s": None, "steps": []})
-        for slot in TIME_SLOTS
-    }
-    db.execute(
-        """INSERT OR REPLACE INTO baselines
-           (route_id, baseline_date,
-            slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
-            slot_08_steps, slot_13_steps, slot_18_steps)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            route_id, baseline_date,
-            slot_data["08:00"]["duration_s"],
-            slot_data["13:00"]["duration_s"],
-            slot_data["18:00"]["duration_s"],
-            json.dumps(slot_data["08:00"]["steps"]),
-            json.dumps(slot_data["13:00"]["steps"]),
-            json.dumps(slot_data["18:00"]["steps"]),
-        ),
-    )
-    db.commit()
-    db.close()
+        slot_data = {
+            slot: selections.get(slot, {"duration_s": None, "steps": []})
+            for slot in TIME_SLOTS
+        }
+        db.execute(
+            """INSERT OR REPLACE INTO baselines
+               (route_id, baseline_date,
+                slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
+                slot_08_steps, slot_13_steps, slot_18_steps)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                route_id, baseline_date,
+                slot_data["08:00"]["duration_s"],
+                slot_data["13:00"]["duration_s"],
+                slot_data["18:00"]["duration_s"],
+                json.dumps(slot_data["08:00"]["steps"]),
+                json.dumps(slot_data["13:00"]["steps"]),
+                json.dumps(slot_data["18:00"]["steps"]),
+            ),
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def scan_route(route_id: int) -> dict:
@@ -184,7 +187,6 @@ def scan_route(route_id: int) -> dict:
         today + datetime.timedelta(days=i)
         for i in range((end_date - today).days + 1)
         if (today + datetime.timedelta(days=i)).weekday() in scan_days
-        and (today + datetime.timedelta(days=i)) >= today
     ]
 
     slot_baseline = {
@@ -216,22 +218,26 @@ def scan_route(route_id: int) -> dict:
             time.sleep(0.2)
 
     db = get_db()
-    db.execute(
-        "UPDATE routes SET last_scanned_at = datetime('now') WHERE id = ?",
-        (route_id,),
-    )
-    db.commit()
-    db.close()
+    try:
+        db.execute(
+            "UPDATE routes SET last_scanned_at = datetime('now') WHERE id = ?",
+            (route_id,),
+        )
+        db.commit()
+    finally:
+        db.close()
     return {"route_id": route_id, "dates_scanned": len(target_dates), "counts": counts}
 
 
 def _last_status(route_id: int, target_date: str, slot: str) -> str:
     db = get_db()
-    row = db.execute(
-        "SELECT status FROM scan_results WHERE route_id=? AND target_date=? AND time_slot=?",
-        (route_id, target_date, slot),
-    ).fetchone()
-    db.close()
+    try:
+        row = db.execute(
+            "SELECT status FROM scan_results WHERE route_id=? AND target_date=? AND time_slot=?",
+            (route_id, target_date, slot),
+        ).fetchone()
+    finally:
+        db.close()
     return row["status"] if row else "UNKNOWN"
 
 
@@ -317,14 +323,16 @@ def _save_result(
     reasons: list,
 ) -> None:
     db = get_db()
-    db.execute(
-        """INSERT OR REPLACE INTO scan_results
-           (route_id, target_date, time_slot, status, duration_s, steps, disruption_reasons)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (route_id, target_date, slot, status, duration_s, json.dumps(steps), json.dumps(reasons)),
-    )
-    db.commit()
-    db.close()
+    try:
+        db.execute(
+            """INSERT OR REPLACE INTO scan_results
+               (route_id, target_date, time_slot, status, duration_s, steps, disruption_reasons)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (route_id, target_date, slot, status, duration_s, json.dumps(steps), json.dumps(reasons)),
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def scan_all_routes() -> None:

@@ -52,8 +52,9 @@ def get_coords(crs: str) -> tuple[float, float]:
         # Empty User-Agent required — API blocks Python-urllib's default agent
         req = urllib.request.Request(url, headers={"x-apikey": _RAILDATA_KEY, "User-Agent": ""})
         import gzip
-        with urllib.request.urlopen(req) as resp:
-            raw = gzip.decompress(resp.read())
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read()
+            raw = gzip.decompress(body) if resp.info().get("Content-Encoding") == "gzip" else body
         root = ET.fromstring(raw)
         ns = {"ns": _STATION_NS}
         lat_el = root.find("ns:Latitude", ns)

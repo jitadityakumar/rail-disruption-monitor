@@ -57,8 +57,8 @@ async function loadDisplay() {
             <div class="disruption-date">${formatDate(d.date)}</div>
             <div class="disruption-slots">
               ${d.slots.map(s => {
-                const reasons = s.disruption_reasons.join(' · ');
-                return `<div>${s.time_slot}${reasons ? ' — ' + reasons : ''}</div>`;
+                const reasons = s.disruption_reasons.map(esc).join(' · ');
+                return `<div>${esc(s.time_slot)}${reasons ? ' — ' + reasons : ''}</div>`;
               }).join('')}
             </div>
           </div>`).join('')
@@ -67,8 +67,8 @@ async function loadDisplay() {
     return `
       <div class="route-display-card ${hasDisruption ? 'has-disruption' : ''}">
         <div class="route-name">
-          ${route.name}
-          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${route.crs_sequence.join(' → ')}</span>
+          ${esc(route.name)}
+          <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${esc(route.crs_sequence.join(' → '))}</span>
         </div>
         ${disruptionHtml}
       </div>`;
