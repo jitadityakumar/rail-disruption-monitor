@@ -57,8 +57,9 @@ async function loadKiosk() {
             <div class="disruption-date">${formatDate(d.date)}</div>
             <div class="disruption-slots">
               ${d.slots.map(s => {
+                const label = s.direction.charAt(0).toUpperCase() + s.direction.slice(1);
                 const reasons = s.disruption_reasons.map(esc).join(' · ');
-                return `<div>${esc(s.time_slot)}${reasons ? ' — ' + reasons : ''}</div>`;
+                return `<div>${esc(label)}${reasons ? ' — ' + reasons : ''}</div>`;
               }).join('')}
             </div>
           </div>`).join('')

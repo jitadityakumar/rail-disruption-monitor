@@ -15,6 +15,15 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_db()
     try:
+        # Migrate old 3-slot schema to bidirectional noon-scan schema
+        scan_cols = {r[1] for r in conn.execute("PRAGMA table_info(scan_results)").fetchall()}
+        if "time_slot" in scan_cols:
+            conn.execute("DROP TABLE IF EXISTS scan_results")
+        baseline_cols = {r[1] for r in conn.execute("PRAGMA table_info(baselines)").fetchall()}
+        if "slot_08_duration_s" in baseline_cols:
+            conn.execute("DROP TABLE IF EXISTS baselines")
+        conn.commit()
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS routes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,12 +48,10 @@ def init_db() -> None:
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 baseline_date       TEXT NOT NULL,
-                slot_08_duration_s  INTEGER,
-                slot_13_duration_s  INTEGER,
-                slot_18_duration_s  INTEGER,
-                slot_08_steps       TEXT,
-                slot_13_steps       TEXT,
-                slot_18_steps       TEXT,
+                outbound_duration_s INTEGER,
+                outbound_steps      TEXT,
+                return_duration_s   INTEGER,
+                return_steps        TEXT,
                 captured_at         TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(route_id)
             );
@@ -53,13 +60,13 @@ def init_db() -> None:
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 target_date         TEXT NOT NULL,
-                time_slot           TEXT NOT NULL,
+                direction           TEXT NOT NULL,
                 status              TEXT NOT NULL,
                 duration_s          INTEGER,
                 steps               TEXT,
                 disruption_reasons  TEXT,
                 scanned_at          TEXT NOT NULL DEFAULT (datetime('now')),
-                UNIQUE(route_id, target_date, time_slot)
+                UNIQUE(route_id, target_date, direction)
             );
 
             CREATE TABLE IF NOT EXISTS api_usage_log (

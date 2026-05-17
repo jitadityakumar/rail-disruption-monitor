@@ -12,7 +12,7 @@ from routes_api import compute_all_routes, compute_route, parse_duration_s, pars
 from stations import get_coords
 
 LONDON = ZoneInfo("Europe/London")
-TIME_SLOTS = ["08:00", "13:00", "18:00"]
+SCAN_SLOT = "12:00"
 RAIL_VEHICLE_TYPES = {"HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "LONG_DISTANCE_TRAIN", "INTERCITY"}
 BUS_VEHICLE_TYPES = {"BUS", "INTERCITY_BUS", "TROLLEYBUS"}
 
@@ -48,59 +48,6 @@ def _route_coords(crs_sequence: list[str]) -> tuple[tuple, tuple, list]:
     return (origin_lat, origin_lon), (dest_lat, dest_lon), waypoints
 
 
-def capture_baseline(route_id: int, baseline_date: str) -> dict:
-    db = get_db()
-    row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
-    db.close()
-    if not row:
-        raise ValueError(f"Route {route_id} not found")
-
-    crs_sequence = json.loads(row["crs_sequence"])
-    origin, dest, waypoints = _route_coords(crs_sequence)
-
-    results = {}
-    slot_data: dict[str, dict] = {}
-
-    for slot in TIME_SLOTS:
-        departure_iso = _to_utc_iso(baseline_date, slot)
-        route = compute_route(
-            origin[0], origin[1], dest[0], dest[1],
-            waypoints, departure_iso, route_id, "baseline",
-        )
-        if route:
-            duration_s = parse_duration_s(route)
-            steps = parse_transit_steps(route)
-            slot_data[slot] = {"duration_s": duration_s, "steps": steps}
-            results[slot] = {"duration_s": duration_s, "steps": steps, "found": True}
-        else:
-            slot_data[slot] = {"duration_s": None, "steps": []}
-            results[slot] = {"found": False}
-        time.sleep(0.2)
-
-    db = get_db()
-    try:
-        db.execute(
-            """INSERT OR REPLACE INTO baselines
-               (route_id, baseline_date,
-                slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
-                slot_08_steps, slot_13_steps, slot_18_steps)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                route_id, baseline_date,
-                slot_data["08:00"]["duration_s"],
-                slot_data["13:00"]["duration_s"],
-                slot_data["18:00"]["duration_s"],
-                json.dumps(slot_data["08:00"]["steps"]),
-                json.dumps(slot_data["13:00"]["steps"]),
-                json.dumps(slot_data["18:00"]["steps"]),
-            ),
-        )
-        db.commit()
-    finally:
-        db.close()
-    return results
-
-
 def fetch_baseline_options(route_id: int, baseline_date: str) -> dict:
     db = get_db()
     row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
@@ -109,14 +56,14 @@ def fetch_baseline_options(route_id: int, baseline_date: str) -> dict:
         raise ValueError(f"Route {route_id} not found")
 
     crs_sequence = json.loads(row["crs_sequence"])
-    origin, dest, _ = _route_coords(crs_sequence)
-
     result = {}
-    for slot in TIME_SLOTS:
+
+    for direction, seq in [("outbound", crs_sequence), ("return", list(reversed(crs_sequence)))]:
+        origin, dest, _ = _route_coords(seq)
         seen: set[tuple] = set()
         options = []
         for offset in (0, 30, 60):
-            departure_iso = _to_utc_iso(baseline_date, _add_minutes(slot, offset))
+            departure_iso = _to_utc_iso(baseline_date, _add_minutes(SCAN_SLOT, offset))
             routes = compute_all_routes(
                 origin[0], origin[1], dest[0], dest[1],
                 departure_iso, route_id, "baseline_preview",
@@ -128,7 +75,7 @@ def fetch_baseline_options(route_id: int, baseline_date: str) -> dict:
                     seen.add(key)
                     options.append({"duration_s": parse_duration_s(route), "steps": steps})
             time.sleep(0.3)
-        result[slot] = options
+        result[direction] = options
     return result
 
 
@@ -138,24 +85,18 @@ def confirm_baseline(route_id: int, baseline_date: str, selections: dict) -> Non
         if not db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone():
             raise ValueError(f"Route {route_id} not found")
 
-        slot_data = {
-            slot: selections.get(slot, {"duration_s": None, "steps": []})
-            for slot in TIME_SLOTS
-        }
+        outbound = selections.get("outbound", {"duration_s": None, "steps": []})
+        ret = selections.get("return", {"duration_s": None, "steps": []})
         db.execute(
             """INSERT OR REPLACE INTO baselines
-               (route_id, baseline_date,
-                slot_08_duration_s, slot_13_duration_s, slot_18_duration_s,
-                slot_08_steps, slot_13_steps, slot_18_steps)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (route_id, baseline_date, outbound_duration_s, outbound_steps, return_duration_s, return_steps)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 route_id, baseline_date,
-                slot_data["08:00"]["duration_s"],
-                slot_data["13:00"]["duration_s"],
-                slot_data["18:00"]["duration_s"],
-                json.dumps(slot_data["08:00"]["steps"]),
-                json.dumps(slot_data["13:00"]["steps"]),
-                json.dumps(slot_data["18:00"]["steps"]),
+                outbound["duration_s"],
+                json.dumps(outbound["steps"]),
+                ret["duration_s"],
+                json.dumps(ret["steps"]),
             ),
         )
         db.commit()
@@ -176,65 +117,53 @@ def scan_route(route_id: int) -> dict:
 
     crs_sequence = json.loads(row["crs_sequence"])
     scan_days = [int(d) for d in row["scan_days"].split(",")]
-    lookahead_weeks = row["lookahead_weeks"]
     threshold_pct = row["threshold_pct"]
 
-    origin, dest, waypoints = _route_coords(crs_sequence)
+    return_seq = list(reversed(crs_sequence))
+    direction_configs = [
+        ("outbound", _route_coords(crs_sequence), {
+            "duration_s": baseline["outbound_duration_s"],
+            "steps": json.loads(baseline["outbound_steps"] or "[]"),
+        }),
+        ("return", _route_coords(return_seq), {
+            "duration_s": baseline["return_duration_s"],
+            "steps": json.loads(baseline["return_steps"] or "[]"),
+        }),
+    ]
 
     today = datetime.date.today()
-    end_date = today + datetime.timedelta(weeks=lookahead_weeks)
+    end_date = today + datetime.timedelta(weeks=row["lookahead_weeks"])
     target_dates = [
         today + datetime.timedelta(days=i)
         for i in range((end_date - today).days + 1)
         if (today + datetime.timedelta(days=i)).weekday() in scan_days
     ]
 
-    slot_baseline = {
-        "08:00": {
-            "duration_s": baseline["slot_08_duration_s"],
-            "steps": json.loads(baseline["slot_08_steps"] or "[]"),
-        },
-        "13:00": {
-            "duration_s": baseline["slot_13_duration_s"],
-            "steps": json.loads(baseline["slot_13_steps"] or "[]"),
-        },
-        "18:00": {
-            "duration_s": baseline["slot_18_duration_s"],
-            "steps": json.loads(baseline["slot_18_steps"] or "[]"),
-        },
-    }
-
     counts = {"NORMAL": 0, "DISRUPTED": 0, "UNKNOWN": 0}
     for target_date in target_dates:
         date_str = target_date.isoformat()
-        for slot in TIME_SLOTS:
-            _query_and_compare(
-                route_id, origin, dest, waypoints,
-                date_str, slot, slot_baseline[slot], threshold_pct,
-            )
-            counts_key = _last_status(route_id, date_str, slot)
+        for direction, (origin, dest, waypoints), bl in direction_configs:
+            _query_and_compare(route_id, origin, dest, waypoints, date_str, direction, bl, threshold_pct)
+            counts_key = _last_status(route_id, date_str, direction)
             if counts_key in counts:
                 counts[counts_key] += 1
             time.sleep(0.2)
 
     db = get_db()
     try:
-        db.execute(
-            "UPDATE routes SET last_scanned_at = datetime('now') WHERE id = ?",
-            (route_id,),
-        )
+        db.execute("UPDATE routes SET last_scanned_at = datetime('now') WHERE id = ?", (route_id,))
         db.commit()
     finally:
         db.close()
     return {"route_id": route_id, "dates_scanned": len(target_dates), "counts": counts}
 
 
-def _last_status(route_id: int, target_date: str, slot: str) -> str:
+def _last_status(route_id: int, target_date: str, direction: str) -> str:
     db = get_db()
     try:
         row = db.execute(
-            "SELECT status FROM scan_results WHERE route_id=? AND target_date=? AND time_slot=?",
-            (route_id, target_date, slot),
+            "SELECT status FROM scan_results WHERE route_id=? AND target_date=? AND direction=?",
+            (route_id, target_date, direction),
         ).fetchone()
     finally:
         db.close()
@@ -247,7 +176,7 @@ def _query_and_compare(
     dest: tuple,
     waypoints: list,
     target_date: str,
-    slot: str,
+    direction: str,
     baseline: dict,
     threshold_pct: int,
 ) -> None:
@@ -258,7 +187,7 @@ def _query_and_compare(
     for offset in (0, 30, 60, 90):
         if offset > 0:
             time.sleep(0.2)
-        departure_iso = _to_utc_iso(target_date, _add_minutes(slot, offset))
+        departure_iso = _to_utc_iso(target_date, _add_minutes(SCAN_SLOT, offset))
         route = compute_route(
             origin[0], origin[1], dest[0], dest[1],
             waypoints, departure_iso, route_id, "scan",
@@ -275,20 +204,18 @@ def _query_and_compare(
             break
 
     if best_route is None:
-        _save_result(route_id, target_date, slot, "UNKNOWN", None, [], [])
+        _save_result(route_id, target_date, direction, "UNKNOWN", None, [], [])
         return
 
     duration_s = parse_duration_s(best_route)
     steps = best_steps
     reasons = []
 
-    # Check 1: bus substitution
     baseline_rail = {(s["dep_stop"], s["arr_stop"]) for s in baseline["steps"] if s["vehicle_type"] in RAIL_VEHICLE_TYPES}
     for step in steps:
         if step["vehicle_type"] in BUS_VEHICLE_TYPES and (step["dep_stop"], step["arr_stop"]) in baseline_rail:
             reasons.append(f"Rail replacement bus on {step['dep_stop']} → {step['arr_stop']}")
 
-    # Check 2: duration increase
     if duration_s and baseline["duration_s"]:
         threshold = baseline["duration_s"] * (1 + threshold_pct / 100)
         if duration_s > threshold:
@@ -297,7 +224,6 @@ def _query_and_compare(
                 f"Journey {pct_over}% longer than baseline ({_fmt_duration(duration_s)} vs {_fmt_duration(baseline['duration_s'])})"
             )
 
-    # Check 3: stop sequence change
     def stop_sequence(step_list):
         return [(s["dep_stop"], s["arr_stop"]) for s in step_list]
 
@@ -310,13 +236,13 @@ def _query_and_compare(
         reasons.append(f"Route has changed: now {new_route}")
 
     status = "DISRUPTED" if reasons else "NORMAL"
-    _save_result(route_id, target_date, slot, status, duration_s, steps, reasons)
+    _save_result(route_id, target_date, direction, status, duration_s, steps, reasons)
 
 
 def _save_result(
     route_id: int,
     target_date: str,
-    slot: str,
+    direction: str,
     status: str,
     duration_s: int | None,
     steps: list,
@@ -326,9 +252,9 @@ def _save_result(
     try:
         db.execute(
             """INSERT OR REPLACE INTO scan_results
-               (route_id, target_date, time_slot, status, duration_s, steps, disruption_reasons)
+               (route_id, target_date, direction, status, duration_s, steps, disruption_reasons)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (route_id, target_date, slot, status, duration_s, json.dumps(steps), json.dumps(reasons)),
+            (route_id, target_date, direction, status, duration_s, json.dumps(steps), json.dumps(reasons)),
         )
         db.commit()
     finally:

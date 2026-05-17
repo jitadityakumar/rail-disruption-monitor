@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
-from scanner import capture_baseline, confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
+from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run
 from stations import get_station_name, validate_crs
 
@@ -118,17 +118,6 @@ def delete_route(route_id: int):
     db.close()
 
 
-@router.post("/api/routes/{route_id}/baseline")
-def trigger_baseline(route_id: int, body: BaselineTrigger):
-    try:
-        results = capture_baseline(route_id, body.baseline_date)
-        return {"ok": True, "slots": results}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/api/routes/{route_id}/baseline/options")
 def baseline_options(route_id: int, body: BaselineTrigger):
     try:
@@ -146,7 +135,7 @@ def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
         confirm_baseline(
             route_id,
             body.baseline_date,
-            {slot: {"duration_s": sel.duration_s, "steps": sel.steps} for slot, sel in body.selections.items()},
+            {direction: {"duration_s": sel.duration_s, "steps": sel.steps} for direction, sel in body.selections.items()},
         )
         return {"ok": True}
     except ValueError as e:
@@ -165,18 +154,14 @@ def get_baseline(route_id: int):
     return {
         "baseline_date": row["baseline_date"],
         "captured_at": row["captured_at"],
-        "slots": {
-            "08:00": {
-                "duration_s": row["slot_08_duration_s"],
-                "steps": json.loads(row["slot_08_steps"] or "[]"),
+        "directions": {
+            "outbound": {
+                "duration_s": row["outbound_duration_s"],
+                "steps": json.loads(row["outbound_steps"] or "[]"),
             },
-            "13:00": {
-                "duration_s": row["slot_13_duration_s"],
-                "steps": json.loads(row["slot_13_steps"] or "[]"),
-            },
-            "18:00": {
-                "duration_s": row["slot_18_duration_s"],
-                "steps": json.loads(row["slot_18_steps"] or "[]"),
+            "return": {
+                "duration_s": row["return_duration_s"],
+                "steps": json.loads(row["return_steps"] or "[]"),
             },
         },
     }
