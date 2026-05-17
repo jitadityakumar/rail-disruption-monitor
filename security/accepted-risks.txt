@@ -1,0 +1,3 @@
+# Accepted CVE risks — add entries here to suppress pip-audit alerts.
+# Format: CVE-YYYY-NNNNN  # package: reason. Accepted YYYY-MM-DD.
+# The security audit workflow skips any CVEs listed in this file.

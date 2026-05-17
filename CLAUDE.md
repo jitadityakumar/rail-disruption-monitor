@@ -1,5 +1,36 @@
 # CLAUDE.md — Rail Disruption Monitor
 
+## Development workflow
+
+Follow this sequence for **every** code change, no exceptions:
+
+1. **Branch** — fetch the latest main, then create a feature branch from it:
+   ```bash
+   git fetch origin && git checkout -b feature/<name> origin/main
+   # or: git fetch origin && git checkout -b fix/<name> origin/main
+   ```
+2. **Implement** — make the code changes
+3. **Self-review** — run the `review` skill on the diff before raising a PR
+   - Fix anything the review flags as a real issue (not just observations)
+4. **PR** — push the branch and open a pull request with a clear summary and test plan
+5. **Wait for local sign-off** — explicitly ask the user to check the changes locally before merging. Do not merge until they confirm.
+
+## Pre-commit hook
+
+Install once per checkout to block accidental secret commits:
+
+```bash
+chmod +x scripts/check-secrets.sh
+ln -sf ../../scripts/check-secrets.sh .git/hooks/pre-commit
+```
+
+## Context file
+
+`context.md` (repo root) is the canonical project context — current status, architecture decisions, next steps. It is gitignored (local only).
+
+- **On session start:** read `context.md` before doing any work
+- **During a session:** update `context.md` after any meaningful action (new files, decisions, features, next steps)
+
 ## What this app does
 
 Monitors UK rail routes for upcoming disruptions. Users define routes as CRS station sequences, capture a "baseline" journey on a normal day, then a weekly scheduler scans upcoming dates and compares results against the baseline to flag disruptions.

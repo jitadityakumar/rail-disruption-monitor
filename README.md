@@ -36,6 +36,31 @@ The app is available at `http://localhost:8000`.
 | `GOOGLE_MAPS_API_KEY` | Google Maps Routes API key |
 | `RAILDATA_STATIONS_API_KEY` | RailData Stations API key for CRS → coordinates lookup |
 
+## Secrets
+
+`.env` is gitignored and must **never** be committed. A pre-commit hook (`scripts/check-secrets.sh`) enforces this. Install it once per checkout:
+
+```bash
+chmod +x scripts/check-secrets.sh
+ln -sf ../../scripts/check-secrets.sh .git/hooks/pre-commit
+```
+
+## Security
+
+A weekly automated audit runs via GitHub Actions every Friday, checking Python dependencies for known CVEs using `pip-audit`. If vulnerabilities are found it opens a GitHub issue; if an issue is already open it adds a comment; once the audit is clean it closes the issue automatically.
+
+To trigger the audit manually: **Actions → Security Audit → Run workflow**.
+
+### Marking a vulnerability as accepted risk
+
+If a CVE is not worth fixing, add it to `security/accepted-risks.txt`:
+
+```
+CVE-2025-12345  # package: reason — not reachable in production, no fix available. Accepted 2026-05-17.
+```
+
+The audit workflow skips any CVEs listed in that file.
+
 ## Web interface
 
 | Path | Description |
