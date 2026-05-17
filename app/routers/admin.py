@@ -195,8 +195,8 @@ def trigger_scan(route_id: int):
 
 @router.post("/api/scan-all")
 async def trigger_scan_all():
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, scan_all_routes)
+    loop = asyncio.get_running_loop()
+    asyncio.ensure_future(loop.run_in_executor(None, scan_all_routes))
     return {"ok": True, "message": "Scan started in background"}
 
 

@@ -4,9 +4,12 @@ Reuses the request pattern from explore_routes_api.py.
 """
 
 import json
+import logging
 import os
 import urllib.request
 import urllib.error
+
+logger = logging.getLogger(__name__)
 
 _API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 _ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
@@ -33,9 +36,13 @@ def _call_api(body: dict, route_id: int | None, purpose: str) -> list[dict]:
     data = json.dumps(body).encode()
     req = urllib.request.Request(_ENDPOINT, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as e:
+        logger.warning("Routes API HTTP %s for route_id=%s purpose=%s", e.code, route_id, purpose)
+        return []
+    except urllib.error.URLError as e:
+        logger.warning("Routes API network error for route_id=%s purpose=%s: %s", route_id, purpose, e)
         return []
     _log_usage(route_id, purpose)
     return result.get("routes", [])
@@ -91,7 +98,7 @@ def parse_duration_s(route: dict) -> int | None:
     raw = route.get("duration")
     if not raw:
         return None
-    return int(raw.rstrip("s"))
+    return int(raw.rstrip("s") or 0)
 
 
 def parse_transit_steps(route: dict) -> list[dict]:
@@ -126,4 +133,4 @@ def _log_usage(route_id: int | None, purpose: str) -> None:
         db.commit()
         db.close()
     except Exception:
-        pass
+        logger.warning("Failed to log API usage", exc_info=True)

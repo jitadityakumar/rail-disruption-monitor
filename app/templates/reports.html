@@ -52,7 +52,7 @@ async function loadReports() {
               ${SLOTS.map(slot => {
                 const cell = route.results_by_date[date][slot];
                 const status = cell ? cell.status : 'UNKNOWN';
-                const reasons = cell && cell.disruption_reasons.length ? cell.disruption_reasons.join('; ') : '';
+                const reasons = cell && cell.disruption_reasons.length ? cell.disruption_reasons.map(esc).join('; ') : '';
                 return `<div class="grid-cell cell-${status}" title="${slot} — ${status}${reasons ? ': ' + reasons : ''}" onclick="showDetail(${route.id},'${date}','${slot}')"></div>`;
               }).join('')}
             </div>
@@ -66,8 +66,8 @@ async function loadReports() {
       <div class="card" style="${hasDisruption ? 'border-color:var(--red)' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
           <div>
-            <strong>${route.name}</strong>
-            <span class="tag" style="margin-left:0.5rem">${route.crs_sequence.join(' → ')}</span>
+            <strong>${esc(route.name)}</strong>
+            <span class="tag" style="margin-left:0.5rem">${esc(route.crs_sequence.join(' → '))}</span>
           </div>
           <div class="info-msg" style="font-size:0.78rem">
             ${route.last_scanned_at ? 'Scanned ' + route.last_scanned_at.slice(0,10) : 'Never scanned'}
@@ -102,7 +102,7 @@ async function showDetail(routeId, date, slot) {
         <div style="margin-bottom:0.75rem">
           <strong style="font-size:0.85rem">Disruption reasons:</strong>
           <ul style="margin:0.4rem 0 0;padding-left:1.2rem;font-size:0.85rem">
-            ${reasons.map(r => `<li>${r}</li>`).join('')}
+            ${reasons.map(r => `<li>${esc(r)}</li>`).join('')}
           </ul>
         </div>` : ''}
       ${steps.length ? `
@@ -113,11 +113,11 @@ async function showDetail(routeId, date, slot) {
             <tbody>
               ${steps.map(s => `
                 <tr>
-                  <td>${s.dep_stop}</td>
-                  <td>${s.arr_stop}</td>
-                  <td><span class="badge ${s.vehicle_type === 'BUS' ? 'badge-DISRUPTED' : 'badge-NORMAL'}">${s.vehicle_type}</span></td>
-                  <td>${s.operator}</td>
-                  <td>${s.line_name}</td>
+                  <td>${esc(s.dep_stop)}</td>
+                  <td>${esc(s.arr_stop)}</td>
+                  <td><span class="badge ${s.vehicle_type === 'BUS' ? 'badge-DISRUPTED' : 'badge-NORMAL'}">${esc(s.vehicle_type)}</span></td>
+                  <td>${esc(s.operator)}</td>
+                  <td>${esc(s.line_name)}</td>
                 </tr>`).join('')}
             </tbody>
           </table>

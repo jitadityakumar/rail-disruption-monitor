@@ -193,6 +193,7 @@
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 let _crsPills = [];
 let _baselineRouteId = null;
+let _routesCache = {};
 
 // ── Route list ──────────────────────────────────────────
 async function loadRoutes() {
@@ -202,9 +203,10 @@ async function loadRoutes() {
     tbody.innerHTML = '<tr><td colspan="8" class="info-msg" style="text-align:center;padding:1.5rem">No routes yet. Add one above.</td></tr>';
     return;
   }
+  rows.forEach(r => { _routesCache[r.id] = r; });
   tbody.innerHTML = rows.map(r => `
     <tr>
-      <td><strong>${r.name}</strong><br><span class="info-msg">${r.crs_sequence.join(' → ')}</span></td>
+      <td><strong>${esc(r.name)}</strong><br><span class="info-msg">${esc(r.crs_sequence.join(' → '))}</span></td>
       <td>${r.scan_days.map(d => DAY_NAMES[d]).join(', ')}</td>
       <td>${r.lookahead_weeks}w</td>
       <td>${r.threshold_pct}%</td>
@@ -213,10 +215,10 @@ async function loadRoutes() {
       <td>${r.kiosk_visible ? '✓' : ''}</td>
       <td>
         <div class="route-actions">
-          <button class="btn-ghost" onclick="openBaselineModal(${r.id}, '${r.name}')">Baseline</button>
+          <button class="btn-ghost" onclick="openBaselineModal(${r.id})">Baseline</button>
           <button class="btn-ghost" onclick="triggerScan(${r.id}, this)">Scan</button>
-          <button class="btn-ghost" onclick="openEditModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
-          <button class="btn-danger btn-ghost" onclick="deleteRoute(${r.id}, '${r.name.replace(/'/g,'\\\'') }')">Delete</button>
+          <button class="btn-ghost" onclick="openEditModal(${r.id})">Edit</button>
+          <button class="btn-danger btn-ghost" onclick="deleteRoute(${r.id})">Delete</button>
         </div>
       </td>
     </tr>
@@ -240,7 +242,7 @@ function renderPills() {
   _crsPills.forEach((crs, i) => {
     const pill = document.createElement('span');
     pill.className = 'crs-pill';
-    pill.innerHTML = `${crs} <span class="remove" onclick="removePill(${i})">✕</span>`;
+    pill.innerHTML = `${esc(crs)} <span class="remove" onclick="removePill(${i})">✕</span>`;
     area.insertBefore(pill, input);
   });
 }
@@ -277,9 +279,12 @@ async function fetchAutocomplete(q) {
   const list = document.getElementById('autocomplete-list');
   if (!items.length) { list.style.display = 'none'; return; }
   list.innerHTML = items.map(s => `
-    <div class="autocomplete-item" onclick="selectAutocomplete('${s.crs}')">
-      ${s.name} <span class="crs-code">${s.crs}</span>
+    <div class="autocomplete-item" data-crs="${esc(s.crs)}">
+      ${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span>
     </div>`).join('');
+  list.querySelectorAll('.autocomplete-item').forEach(el => {
+    el.addEventListener('click', () => selectAutocomplete(el.dataset.crs));
+  });
   list.style.display = 'block';
 }
 
@@ -354,10 +359,10 @@ async function submitAddRoute(btn) {
 // ── Baseline modal ──────────────────────────────────────
 let _baselineOptions = null;
 
-function openBaselineModal(routeId, routeName) {
+function openBaselineModal(routeId) {
   _baselineRouteId = routeId;
   _baselineOptions = null;
-  document.getElementById('baseline-route-name').textContent = routeName;
+  document.getElementById('baseline-route-name').textContent = _routesCache[routeId].name;
   document.getElementById('baseline-error').textContent = '';
   document.getElementById('baseline-date').value = '';
   showBaselineStep1();
@@ -462,7 +467,8 @@ async function confirmBaseline(btn) {
 }
 
 // ── Edit modal ──────────────────────────────────────────
-function openEditModal(route) {
+function openEditModal(routeId) {
+  const route = _routesCache[routeId];
   document.getElementById('edit-route-id').value = route.id;
   document.getElementById('edit-name').value = route.name;
   document.getElementById('edit-lookahead').value = route.lookahead_weeks;
@@ -478,6 +484,10 @@ function openEditModal(route) {
 async function submitEditRoute(btn) {
   const id = document.getElementById('edit-route-id').value;
   const scan_days = Array.from(document.querySelectorAll('[name="edit_scan_day"]:checked')).map(c => +c.value);
+  if (!scan_days.length) {
+    document.getElementById('edit-error').textContent = 'Select at least one scan day.';
+    return;
+  }
   btn.disabled = true;
   try {
     await patchJSON(`/api/routes/${id}`, {
@@ -525,7 +535,8 @@ async function triggerScanAll(btn) {
   }
 }
 
-async function deleteRoute(routeId, name) {
+async function deleteRoute(routeId) {
+  const name = _routesCache[routeId]?.name ?? 'this route';
   if (!confirm(`Delete route "${name}"? This removes all scan results and baselines.`)) return;
   try {
     await deleteReq(`/api/routes/${routeId}`);
