@@ -30,8 +30,10 @@ def get_reports():
         scan_rows = db.execute(
             """SELECT target_date, time_slot, status, duration_s, disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
+               AND target_date >= date('now')
+               AND target_date <= date('now', ? || ' days')
                ORDER BY target_date, time_slot""",
-            (route["id"],),
+            (route["id"], route["lookahead_weeks"] * 7),
         ).fetchall()
 
         by_date = defaultdict(dict)

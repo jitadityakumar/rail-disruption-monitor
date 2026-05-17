@@ -32,8 +32,9 @@ def get_kiosk_data():
             """SELECT target_date, time_slot, status, disruption_reasons, scanned_at
                FROM scan_results
                WHERE route_id = ? AND target_date >= ? AND status = 'DISRUPTED'
+               AND target_date <= date('now', ? || ' days')
                ORDER BY target_date, time_slot""",
-            (route["id"], today),
+            (route["id"], today, route["lookahead_weeks"] * 7),
         ).fetchall()
 
         disruptions_by_date = defaultdict(list)
