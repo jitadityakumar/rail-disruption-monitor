@@ -26,7 +26,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const SLOTS = ['08:00','13:00','18:00'];
+const SLOTS = ['outbound','return'];
 const STATUS_ORDER = { DISRUPTED: 0, UNKNOWN: 1, NORMAL: 2 };
 
 async function loadReports() {
@@ -49,17 +49,18 @@ async function loadReports() {
           <div class="date-group">
             <div class="date-label">${formatDate(date)}</div>
             <div style="display:flex;gap:3px">
-              ${SLOTS.map(slot => {
-                const cell = route.results_by_date[date][slot];
+              ${SLOTS.map(dir => {
+                const cell = route.results_by_date[date][dir];
                 const status = cell ? cell.status : 'UNKNOWN';
+                const label = dir.charAt(0).toUpperCase() + dir.slice(1);
                 const reasons = cell && cell.disruption_reasons.length ? cell.disruption_reasons.map(esc).join('; ') : '';
-                return `<div class="grid-cell cell-${status}" title="${slot} — ${status}${reasons ? ': ' + reasons : ''}" onclick="showDetail(${route.id},'${date}','${slot}')"></div>`;
+                return `<div class="grid-cell cell-${status}" title="${label} — ${status}${reasons ? ': ' + reasons : ''}" onclick="showDetail(${route.id},'${date}','${dir}')"></div>`;
               }).join('')}
             </div>
           </div>
         `).join('')}
       </div>
-      <div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">Columns: 08:00 / 13:00 / 18:00 — click any cell for detail</div>
+      <div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">Columns: Outbound / Return — click any cell for detail</div>
     ` : '<div class="info-msg">No scan results yet. Run a scan from Admin.</div>';
 
     return `
@@ -83,13 +84,14 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-async function showDetail(routeId, date, slot) {
+async function showDetail(routeId, date, direction) {
   const data = await fetchJSON(`/api/reports/${routeId}`);
-  const result = data.results.find(r => r.target_date === date && r.time_slot === slot);
-  document.getElementById('detail-title').textContent = `${data.route.name} — ${formatDate(date)} ${slot}`;
+  const result = data.results.find(r => r.target_date === date && r.direction === direction);
+  const label = direction.charAt(0).toUpperCase() + direction.slice(1);
+  document.getElementById('detail-title').textContent = `${data.route.name} — ${formatDate(date)} (${label})`;
 
   if (!result) {
-    document.getElementById('detail-body').innerHTML = '<div class="info-msg">No data for this slot.</div>';
+    document.getElementById('detail-body').innerHTML = '<div class="info-msg">No data for this direction.</div>';
   } else {
     const reasons = result.disruption_reasons;
     const steps = result.steps;

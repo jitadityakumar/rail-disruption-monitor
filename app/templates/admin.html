@@ -113,7 +113,7 @@
 
     <!-- Step 1: date + fetch -->
     <div id="baseline-step1">
-      <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched across three time windows (morning, midday, evening).</p>
+      <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched at noon for both the outbound and return directions.</p>
       <div class="form-group" style="margin-bottom:1rem">
         <label>Baseline date</label>
         <input type="date" id="baseline-date">
@@ -127,7 +127,7 @@
 
     <!-- Step 2: option picker -->
     <div id="baseline-step2" style="display:none">
-      <p class="info-msg" style="margin-bottom:0.75rem">Select the journey to use as the baseline for each time slot.</p>
+      <p class="info-msg" style="margin-bottom:0.75rem">Select the journey to use as the baseline for each direction.</p>
       <div id="baseline-options-body"></div>
       <div class="error-msg" id="baseline-confirm-error"></div>
       <div style="display:flex;gap:0.5rem;margin-top:1rem">
@@ -409,14 +409,17 @@ async function fetchBaselineOptions(btn) {
 }
 
 function renderBaselineOptions(options) {
-  const slots = ['08:00', '13:00', '18:00'];
+  const directions = [
+    { key: 'outbound', label: 'Outbound' },
+    { key: 'return',   label: 'Return' },
+  ];
   const body = document.getElementById('baseline-options-body');
-  body.innerHTML = slots.map(slot => {
-    const opts = options[slot] || [];
+  body.innerHTML = directions.map(({ key, label }) => {
+    const opts = options[key] || [];
     if (!opts.length) {
-      return `<div class="baseline-slot"><div class="baseline-slot-label">${slot}</div><div class="info-msg">No service found for this slot.</div></div>`;
+      return `<div class="baseline-slot"><div class="baseline-slot-label">${label}</div><div class="info-msg">No service found.</div></div>`;
     }
-    const name = `bl_${slot.replace(':', '')}`;
+    const name = `bl_${key}`;
     const radios = opts.map((o, i) => `
       <label class="baseline-option${i === 0 ? ' selected' : ''}">
         <input type="radio" name="${name}" value="${i}" ${i === 0 ? 'checked' : ''}>
@@ -426,7 +429,7 @@ function renderBaselineOptions(options) {
         </span>
       </label>`).join('');
     return `<div class="baseline-slot">
-      <div class="baseline-slot-label">${slot}</div>
+      <div class="baseline-slot-label">${label}</div>
       <div class="baseline-option-group">${radios}</div>
     </div>`;
   }).join('');
@@ -443,12 +446,11 @@ function renderBaselineOptions(options) {
 async function confirmBaseline(btn) {
   const date = document.getElementById('baseline-date').value;
   const selections = {};
-  for (const slot of ['08:00', '13:00', '18:00']) {
-    const name = `bl_${slot.replace(':', '')}`;
-    const radio = document.querySelector(`[name="${name}"]:checked`);
+  for (const key of ['outbound', 'return']) {
+    const radio = document.querySelector(`[name="bl_${key}"]:checked`);
     const idx = radio ? +radio.value : 0;
-    const opts = (_baselineOptions && _baselineOptions[slot]) || [];
-    if (opts[idx]) selections[slot] = opts[idx];
+    const opts = (_baselineOptions && _baselineOptions[key]) || [];
+    if (opts[idx]) selections[key] = opts[idx];
   }
   const err = document.getElementById('baseline-confirm-error');
   err.textContent = '';

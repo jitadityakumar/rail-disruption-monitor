@@ -28,17 +28,17 @@ def get_reports():
         route_dict["kiosk_visible"] = bool(route_dict["kiosk_visible"])
 
         scan_rows = db.execute(
-            """SELECT target_date, time_slot, status, duration_s, disruption_reasons, scanned_at
+            """SELECT target_date, direction, status, duration_s, disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
                AND target_date >= date('now')
                AND target_date <= date('now', ? || ' days')
-               ORDER BY target_date, time_slot""",
+               ORDER BY target_date, direction""",
             (route["id"], route["lookahead_weeks"] * 7),
         ).fetchall()
 
         by_date = defaultdict(dict)
         for r in scan_rows:
-            by_date[r["target_date"]][r["time_slot"]] = {
+            by_date[r["target_date"]][r["direction"]] = {
                 "status": r["status"],
                 "duration_s": r["duration_s"],
                 "disruption_reasons": json.loads(r["disruption_reasons"] or "[]"),
@@ -63,7 +63,7 @@ def get_route_report(route_id: int):
 
     scan_rows = db.execute(
         """SELECT * FROM scan_results WHERE route_id = ?
-           ORDER BY target_date, time_slot""",
+           ORDER BY target_date, direction""",
         (route_id,),
     ).fetchall()
     db.close()
@@ -72,7 +72,7 @@ def get_route_report(route_id: int):
     for r in scan_rows:
         results.append({
             "target_date": r["target_date"],
-            "time_slot": r["time_slot"],
+            "direction": r["direction"],
             "status": r["status"],
             "duration_s": r["duration_s"],
             "steps": json.loads(r["steps"] or "[]"),

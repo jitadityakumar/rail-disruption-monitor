@@ -29,18 +29,18 @@ def get_kiosk_data():
 
     for route in routes:
         scan_rows = db.execute(
-            """SELECT target_date, time_slot, status, disruption_reasons, scanned_at
+            """SELECT target_date, direction, status, disruption_reasons, scanned_at
                FROM scan_results
                WHERE route_id = ? AND target_date >= ? AND status = 'DISRUPTED'
                AND target_date <= date('now', ? || ' days')
-               ORDER BY target_date, time_slot""",
+               ORDER BY target_date, direction""",
             (route["id"], today, route["lookahead_weeks"] * 7),
         ).fetchall()
 
         disruptions_by_date = defaultdict(list)
         for r in scan_rows:
             disruptions_by_date[r["target_date"]].append({
-                "time_slot": r["time_slot"],
+                "direction": r["direction"],
                 "disruption_reasons": json.loads(r["disruption_reasons"] or "[]"),
                 "scanned_at": r["scanned_at"],
             })
