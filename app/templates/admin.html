@@ -241,10 +241,58 @@ function makeAutocomplete(inputId, listId) {
   const list  = document.getElementById(listId);
   let selectedCrs = null;
   let timer = null;
+  let activeIndex = -1;
+
+  function getItems() { return list.querySelectorAll('.autocomplete-item'); }
+
+  function setActive(idx) {
+    const items = getItems();
+    items.forEach(el => el.classList.remove('active'));
+    activeIndex = idx;
+    if (idx >= 0 && idx < items.length) {
+      items[idx].classList.add('active');
+      items[idx].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function selectItem(el) {
+    input.value = el.dataset.name;
+    input.dataset.crs = el.dataset.crs;
+    selectedCrs = el.dataset.crs;
+    list.style.display = 'none';
+    activeIndex = -1;
+  }
+
+  input.addEventListener('keydown', e => {
+    const items = getItems();
+    const open = list.style.display !== 'none' && items.length > 0;
+    if (e.key === 'ArrowDown') {
+      if (!open) return;
+      e.preventDefault();
+      setActive(Math.min(activeIndex + 1, items.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      if (!open) return;
+      e.preventDefault();
+      setActive(Math.max(activeIndex - 1, 0));
+    } else if (e.key === 'Enter') {
+      if (!open) return;
+      e.preventDefault();
+      const target = activeIndex >= 0 ? items[activeIndex] : items[0];
+      if (target) selectItem(target);
+    } else if (e.key === 'Tab') {
+      if (!open) return;
+      const target = activeIndex >= 0 ? items[activeIndex] : items[0];
+      if (target) selectItem(target);
+    } else if (e.key === 'Escape') {
+      list.style.display = 'none';
+      activeIndex = -1;
+    }
+  });
 
   input.addEventListener('input', () => {
     selectedCrs = null;
     input.dataset.crs = '';
+    activeIndex = -1;
     clearTimeout(timer);
     const q = input.value.trim();
     if (q.length < 1) { list.style.display = 'none'; return; }
@@ -255,12 +303,7 @@ function makeAutocomplete(inputId, listId) {
         `<div class="autocomplete-item" data-crs="${esc(s.crs)}" data-name="${esc(s.name)}">${esc(s.name)} <span class="crs-code">${esc(s.crs)}</span></div>`
       ).join('');
       list.querySelectorAll('.autocomplete-item').forEach(el => {
-        el.addEventListener('click', () => {
-          input.value = el.dataset.name;
-          input.dataset.crs = el.dataset.crs;
-          selectedCrs = el.dataset.crs;
-          list.style.display = 'none';
-        });
+        el.addEventListener('click', () => selectItem(el));
       });
       list.style.display = 'block';
     }, 200);
@@ -272,7 +315,7 @@ function makeAutocomplete(inputId, listId) {
 
   return {
     getCrs: () => input.dataset.crs || null,
-    reset: () => { input.value = ''; input.dataset.crs = ''; selectedCrs = null; list.style.display = 'none'; },
+    reset: () => { input.value = ''; input.dataset.crs = ''; selectedCrs = null; list.style.display = 'none'; activeIndex = -1; },
   };
 }
 
