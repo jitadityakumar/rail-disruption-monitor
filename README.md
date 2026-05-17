@@ -36,15 +36,6 @@ The app is available at `http://localhost:8000`.
 | `GOOGLE_MAPS_API_KEY` | Google Maps Routes API key |
 | `RAILDATA_STATIONS_API_KEY` | RailData Stations API key for CRS → coordinates lookup |
 
-The scan schedule and other runtime settings are configured in `docker-compose.yml`:
-
-| Variable | Default | Description |
-|---|---|---|
-| `SCAN_DOW` | `sun` | Day of week to run the weekly scan |
-| `SCAN_HOUR` | `6` | Hour to run the scan (24h, Europe/London) |
-| `SCAN_MINUTE` | `0` | Minute to run the scan |
-| `DB_PATH` | `/data/rail.db` | Path to the SQLite database inside the container |
-
 ## Web interface
 
 | Path | Description |
