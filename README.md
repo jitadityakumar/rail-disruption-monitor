@@ -1,17 +1,17 @@
 # Rail Disruption Monitor
 
-A self-hosted tool that monitors UK rail routes for disruptions and flags them before you travel. You define routes by station sequence, capture a baseline journey on a normal day, and the app scans upcoming dates weekly to detect changes — rail replacement buses, significant delays, or rerouting.
+A self-hosted tool that monitors UK rail routes for disruptions and flags them before you travel. You define routes by origin, optional interchange, and destination, capture a baseline journey on a normal day, and the app scans upcoming weekends weekly to detect changes — rail replacement buses, significant delays, or trains no longer reaching their destination.
 
 ## How it works
 
-1. **Define a route** — specify a sequence of station CRS codes (e.g. `BNS → WTN → WAT`)
-2. **Capture a baseline** — the app queries the Google Maps Routes API for that route on a normal service day, recording journey time and transit steps at 08:00, 13:00, and 18:00
-3. **Weekly scan** — every Sunday at 06:00 (by default), the app queries the same route for each upcoming date in your lookahead window and compares results against the baseline
-4. **Disruption detection** — a date/slot is flagged as disrupted if any of the following are true:
-   - A rail replacement bus appears on a leg that was previously a train
+1. **Define a route** — specify an origin CRS, optional interchange CRS, and destination CRS (e.g. `BNS → CLJ → LRD`)
+2. **Capture a baseline** — the app queries the Google Maps Routes API at noon for each leg (outbound and return), showing journey options; you pick the one that represents normal service
+3. **Weekly scan** — every Sunday at 06:00 (by default), the app scans each configured weekday in your lookahead window, querying both outbound and return at noon
+4. **Disruption detection** — each leg is scanned independently and marked DISRUPTED if any of the following are true:
+   - A rail replacement bus appears on that leg
    - Journey time exceeds baseline by more than a configurable threshold (default 20%)
-   - The stop sequence has changed
-5. **Display view** — a kiosk-friendly page shows upcoming disruptions at a glance
+   - The train no longer reaches the baseline arrival station
+5. **Display view** — a kiosk-friendly page shows upcoming disruptions at a glance, and the reports page gives an 8-week calendar per route with per-day detail
 
 ## Prerequisites
 
@@ -31,10 +31,14 @@ The app is available at `http://localhost:8000`.
 
 ## Configuration
 
-| Variable | Description |
-|---|---|
-| `GOOGLE_MAPS_API_KEY` | Google Maps Routes API key |
-| `RAILDATA_STATIONS_API_KEY` | RailData Stations API key for CRS → coordinates lookup |
+| Variable | Description | Default |
+|---|---|---|
+| `GOOGLE_MAPS_API_KEY` | Google Maps Routes API key | required |
+| `RAILDATA_STATIONS_API_KEY` | RailData Stations API key for CRS → coordinates lookup | required |
+| `DB_PATH` | Path to SQLite database inside container | `/data/rail.db` |
+| `SCAN_DOW` | APScheduler day-of-week string for weekly scan | `sun` |
+| `SCAN_HOUR` | Hour to run the weekly scan | `6` |
+| `SCAN_MINUTE` | Minute to run the weekly scan | `0` |
 
 ## Secrets
 
@@ -66,8 +70,8 @@ The audit workflow skips any CVEs listed in that file.
 | Path | Description |
 |---|---|
 | `/admin` | Manage routes, capture baselines, trigger manual scans |
-| `/kiosk` | Kiosk view — upcoming disruptions across all visible routes |
-| `/reports` | Detailed scan history and per-date breakdowns |
+| `/kiosk` | Kiosk view — upcoming disruptions across all kiosk-visible routes (max 3), auto-refreshes every 5 minutes |
+| `/reports` | 8-week calendar per route with disruption detail and day-level modal |
 
 ## Data storage
 
