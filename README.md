@@ -66,7 +66,7 @@ The audit workflow skips any CVEs listed in that file.
 | Path | Description |
 |---|---|
 | `/admin` | Manage routes, capture baselines, trigger manual scans |
-| `/display` | Kiosk view — upcoming disruptions across all visible routes |
+| `/kiosk` | Kiosk view — upcoming disruptions across all visible routes |
 | `/reports` | Detailed scan history and per-date breakdowns |
 
 ## Data storage

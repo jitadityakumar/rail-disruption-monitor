@@ -57,7 +57,7 @@ app/
   stations.json    — Bundled station list (CRS → display name)
   routers/
     admin.py       — Route CRUD, baseline capture/confirm, manual scan trigger, station search
-    display.py     — Kiosk view data
+    kiosk.py       — Kiosk view data
     reports.py     — Scan history and breakdown
   templates/       — Jinja2 HTML templates
   static/          — app.js, style.css
