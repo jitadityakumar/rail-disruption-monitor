@@ -7,24 +7,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from database import get_db
-from stations import get_station_name, route_display_name
+from stations import leg_label, route_display_name
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-
-
-def _leg_label(row, direction: str, leg: int) -> str:
-    o = get_station_name(row["origin_crs"]) or row["origin_crs"]
-    d = get_station_name(row["destination_crs"]) or row["destination_crs"]
-    c = (get_station_name(row["change_crs"]) or row["change_crs"]) if row["change_crs"] else None
-
-    labels = {
-        ("outbound", 1): f"{o} → {c or d}",
-        ("outbound", 2): f"{c} → {d}" if c else None,
-        ("return",   1): f"{d} → {c or o}",
-        ("return",   2): f"{c} → {o}" if c else None,
-    }
-    return labels.get((direction, leg), f"{direction} leg {leg}")
 
 
 @router.get("/kiosk", response_class=HTMLResponse)
@@ -55,7 +41,7 @@ def get_kiosk_data():
         disruptions_by_date = defaultdict(list)
         for r in scan_rows:
             disruptions_by_date[r["target_date"]].append({
-                "label": _leg_label(route, r["direction"], r["leg"]),
+                "label": leg_label(route, r["direction"], r["leg"]),
                 "disruption_reasons": json.loads(r["disruption_reasons"] or "[]"),
                 "scanned_at": r["scanned_at"],
             })

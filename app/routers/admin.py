@@ -9,27 +9,10 @@ from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run
-from stations import get_station_name, route_display_name, validate_crs
+from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-
-
-def _route_leg_labels(row) -> list[dict]:
-    o = get_station_name(row["origin_crs"]) or row["origin_crs"]
-    d = get_station_name(row["destination_crs"]) or row["destination_crs"]
-    c = (get_station_name(row["change_crs"]) or row["change_crs"]) if row["change_crs"] else None
-    if c:
-        return [
-            {"key": "outbound_1", "label": f"{o} → {c}"},
-            {"key": "outbound_2", "label": f"{c} → {d}"},
-            {"key": "return_1",   "label": f"{d} → {c}"},
-            {"key": "return_2",   "label": f"{c} → {o}"},
-        ]
-    return [
-        {"key": "outbound_1", "label": f"{o} → {d}"},
-        {"key": "return_1",   "label": f"{d} → {o}"},
-    ]
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -56,7 +39,7 @@ def list_routes():
         d["kiosk_visible"] = bool(d["kiosk_visible"])
         d["has_baseline"] = row["id"] in baseline_route_ids
         d["has_change"] = bool(row["change_crs"])
-        d["leg_labels"] = _route_leg_labels(row)
+        d["leg_labels"] = route_leg_labels(row)
         d["display_name"] = route_display_name(row["origin_crs"], row["destination_crs"], row["change_crs"])
         result.append(d)
     return result
@@ -235,7 +218,7 @@ def search_stations(q: str = ""):
 
 @router.get("/api/stations/{crs}")
 def get_station(crs: str):
-    from stations import get_coords, validate_crs
+    from stations import get_coords
     crs = crs.upper()
     if not validate_crs(crs):
         raise HTTPException(status_code=404, detail="Station not found")

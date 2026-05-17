@@ -2,6 +2,7 @@ import os
 import sqlite3
 
 DB_PATH = os.environ.get("DB_PATH", "/data/rail.db")
+SCHEMA_VERSION = 6
 
 
 def get_db() -> sqlite3.Connection:
@@ -15,16 +16,31 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_db()
     try:
-        conn.executescript("""
-            DROP TABLE IF EXISTS api_usage_log;
-            DROP TABLE IF EXISTS scan_results;
-            DROP TABLE IF EXISTS baselines;
-            DROP TABLE IF EXISTS routes;
-        """)
-        conn.commit()
+        # Read persisted schema version; 0 means fresh or pre-versioned DB
+        version = 0
+        try:
+            row = conn.execute("SELECT version FROM schema_version").fetchone()
+            if row:
+                version = row[0]
+        except sqlite3.OperationalError:
+            pass
+
+        if version < SCHEMA_VERSION:
+            conn.executescript("""
+                DROP TABLE IF EXISTS api_usage_log;
+                DROP TABLE IF EXISTS scan_results;
+                DROP TABLE IF EXISTS baselines;
+                DROP TABLE IF EXISTS routes;
+                DROP TABLE IF EXISTS schema_version;
+            """)
+            conn.commit()
 
         conn.executescript("""
-            CREATE TABLE routes (
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS routes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 name            TEXT NOT NULL,
                 origin_crs      TEXT NOT NULL,
@@ -45,7 +61,7 @@ def init_db() -> None:
                 fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            CREATE TABLE baselines (
+            CREATE TABLE IF NOT EXISTS baselines (
                 id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 route_id                    INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 baseline_date               TEXT NOT NULL,
@@ -65,7 +81,7 @@ def init_db() -> None:
                 UNIQUE(route_id)
             );
 
-            CREATE TABLE scan_results (
+            CREATE TABLE IF NOT EXISTS scan_results (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 target_date         TEXT NOT NULL,
@@ -79,13 +95,15 @@ def init_db() -> None:
                 UNIQUE(route_id, target_date, direction, leg)
             );
 
-            CREATE TABLE api_usage_log (
+            CREATE TABLE IF NOT EXISTS api_usage_log (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 called_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 route_id    INTEGER REFERENCES routes(id) ON DELETE SET NULL,
                 purpose     TEXT NOT NULL
             );
         """)
+        conn.execute("DELETE FROM schema_version")
+        conn.execute("INSERT INTO schema_version VALUES (?)", (SCHEMA_VERSION,))
         conn.commit()
     finally:
         conn.close()

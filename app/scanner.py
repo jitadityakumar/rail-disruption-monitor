@@ -104,7 +104,7 @@ def confirm_baseline(route_id: int, baseline_date: str, selections: dict) -> Non
         def _vals(sel):
             if sel is None:
                 return None, None, None
-            return sel.get("duration_s"), json.dumps(sel.get("steps", [])), sel.get("arr_stop", "")
+            return sel.get("duration_s"), json.dumps(sel.get("steps", [])), sel.get("arr_stop") or None
 
         ol1_dur, ol1_steps, ol1_arr = _vals(selections.get("outbound_leg1"))
         ol2_dur, ol2_steps, ol2_arr = _vals(selections.get("outbound_leg2"))
@@ -227,8 +227,13 @@ def _query_and_compare(
     baseline_duration_s: int | None,
     threshold_pct: int,
 ) -> None:
+    if not baseline_arr_stop:
+        _save_result(route_id, target_date, direction, leg, "UNKNOWN", None, [], ["No baseline arrival stop recorded"])
+        return
+
     found_direct = None
     any_bus = False
+    got_any_routes = False
 
     for offset in (0, 30, 60, 90, 120):
         if offset > 0:
@@ -238,6 +243,8 @@ def _query_and_compare(
             origin[0], origin[1], dest[0], dest[1],
             departure_iso, route_id, "scan",
         )
+        if routes:
+            got_any_routes = True
         for route in routes:
             steps = parse_transit_steps(route)
             if any(s["vehicle_type"] in BUS_VEHICLE_TYPES for s in steps):
@@ -252,8 +259,11 @@ def _query_and_compare(
             break
 
     if found_direct is None:
-        reason = "Rail replacement bus detected" if any_bus else "No direct service found"
-        _save_result(route_id, target_date, direction, leg, "DISRUPTED", None, [], [reason])
+        if not got_any_routes:
+            _save_result(route_id, target_date, direction, leg, "UNKNOWN", None, [], ["No routes returned by API"])
+        else:
+            reason = "Rail replacement bus detected" if any_bus else "No direct service found"
+            _save_result(route_id, target_date, direction, leg, "DISRUPTED", None, [], [reason])
         return
 
     route, steps = found_direct

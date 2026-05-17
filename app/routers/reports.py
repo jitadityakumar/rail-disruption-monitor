@@ -6,27 +6,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from database import get_db
-from stations import get_station_name, route_display_name
+from stations import route_display_name, route_leg_labels
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-
-
-def _route_leg_labels(row) -> list[dict]:
-    o = get_station_name(row["origin_crs"]) or row["origin_crs"]
-    d = get_station_name(row["destination_crs"]) or row["destination_crs"]
-    c = (get_station_name(row["change_crs"]) or row["change_crs"]) if row["change_crs"] else None
-    if c:
-        return [
-            {"key": "outbound_1", "label": f"{o} → {c}"},
-            {"key": "outbound_2", "label": f"{c} → {d}"},
-            {"key": "return_1",   "label": f"{d} → {c}"},
-            {"key": "return_2",   "label": f"{c} → {o}"},
-        ]
-    return [
-        {"key": "outbound_1", "label": f"{o} → {d}"},
-        {"key": "return_1",   "label": f"{d} → {o}"},
-    ]
 
 
 @router.get("/reports", response_class=HTMLResponse)
@@ -44,7 +27,7 @@ def get_reports():
         route_dict["scan_days"] = [int(x) for x in route_dict["scan_days"].split(",")]
         route_dict["kiosk_visible"] = bool(route_dict["kiosk_visible"])
         route_dict["has_change"] = bool(route["change_crs"])
-        route_dict["leg_labels"] = _route_leg_labels(route)
+        route_dict["leg_labels"] = route_leg_labels(route)
         route_dict["display_name"] = route_display_name(route["origin_crs"], route["destination_crs"], route["change_crs"])
 
         scan_rows = db.execute(
@@ -110,7 +93,7 @@ def get_route_report(route_id: int):
             "origin_crs": route["origin_crs"],
             "change_crs": route["change_crs"],
             "destination_crs": route["destination_crs"],
-            "leg_labels": _route_leg_labels(route),
+            "leg_labels": route_leg_labels(route),
         },
         "results": results,
     }

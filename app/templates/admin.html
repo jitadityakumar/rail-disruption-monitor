@@ -477,7 +477,7 @@ async function confirmBaseline(btn) {
     const idx = radio ? +radio.value : 0;
     const opts = _legOptions(_baselineOptions, key);
     // "outbound_1" → "outbound_leg1", "return_2" → "return_leg2"
-    const fieldName = key.replace('_', '_leg');
+    const fieldName = key.replace(/^(\w+)_(\d)$/, '$1_leg$2');
     payload[fieldName] = opts[idx] || null;
   }
 
