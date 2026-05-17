@@ -2,7 +2,6 @@ import os
 import sqlite3
 
 DB_PATH = os.environ.get("DB_PATH", "/data/rail.db")
-SCHEMA_VERSION = 6
 
 
 def get_db() -> sqlite3.Connection:
@@ -16,30 +15,7 @@ def get_db() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_db()
     try:
-        # Read persisted schema version; 0 means fresh or pre-versioned DB
-        version = 0
-        try:
-            row = conn.execute("SELECT version FROM schema_version").fetchone()
-            if row:
-                version = row[0]
-        except sqlite3.OperationalError:
-            pass
-
-        if version < SCHEMA_VERSION:
-            conn.executescript("""
-                DROP TABLE IF EXISTS api_usage_log;
-                DROP TABLE IF EXISTS scan_results;
-                DROP TABLE IF EXISTS baselines;
-                DROP TABLE IF EXISTS routes;
-                DROP TABLE IF EXISTS schema_version;
-            """)
-            conn.commit()
-
         conn.executescript("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS routes (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 name            TEXT NOT NULL,
@@ -102,8 +78,6 @@ def init_db() -> None:
                 purpose     TEXT NOT NULL
             );
         """)
-        conn.execute("DELETE FROM schema_version")
-        conn.execute("INSERT INTO schema_version VALUES (?)", (SCHEMA_VERSION,))
         conn.commit()
     finally:
         conn.close()
