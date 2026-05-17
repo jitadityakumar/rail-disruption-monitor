@@ -12,13 +12,13 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
-@router.get("/display", response_class=HTMLResponse)
-def get_display_page(request: Request):
-    return templates.TemplateResponse("display.html", {"request": request})
+@router.get("/kiosk", response_class=HTMLResponse)
+def get_kiosk_page(request: Request):
+    return templates.TemplateResponse("kiosk.html", {"request": request})
 
 
-@router.get("/api/display")
-def get_display_data():
+@router.get("/api/kiosk")
+def get_kiosk_data():
     db = get_db()
     routes = db.execute(
         "SELECT * FROM routes WHERE kiosk_visible = 1 ORDER BY created_at"

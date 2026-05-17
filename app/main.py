@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from database import init_db
 from scheduler import setup_scheduler, shutdown_scheduler
 from stations import load_station_list
-from routers import admin, reports, display
+from routers import admin, reports, kiosk
 
 templates = Jinja2Templates(directory="templates")
 
@@ -27,7 +27,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(admin.router)
 app.include_router(reports.router)
-app.include_router(display.router)
+app.include_router(kiosk.router)
 
 
 @app.get("/", include_in_schema=False)

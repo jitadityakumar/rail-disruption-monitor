@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rail Monitor — Display</title>
+  <title>Rail Monitor — Kiosk</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -40,8 +40,8 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-async function loadDisplay() {
-  const routes = await fetchJSON('/api/display').catch(() => []);
+async function loadKiosk() {
+  const routes = await fetchJSON('/api/kiosk').catch(() => []);
   const content = document.getElementById('display-content');
 
   if (!routes.length) {
@@ -81,8 +81,8 @@ async function loadDisplay() {
 
 updateClock();
 setInterval(updateClock, 1000);
-loadDisplay();
-setInterval(loadDisplay, 300000);
+loadKiosk();
+setInterval(loadKiosk, 300000);
 </script>
 </body>
 </html>

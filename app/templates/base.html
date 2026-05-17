@@ -11,7 +11,7 @@
     <span class="nav-title">Rail Monitor</span>
     <a href="/admin" class="{{ 'active' if request.url.path == '/admin' else '' }}">Admin</a>
     <a href="/reports" class="{{ 'active' if request.url.path == '/reports' else '' }}">Reports</a>
-    <a href="/display" class="{{ 'active' if request.url.path == '/display' else '' }}">Display</a>
+    <a href="/kiosk" class="{{ 'active' if request.url.path == '/kiosk' else '' }}">Kiosk</a>
   </nav>
   <main>
     {% block content %}{% endblock %}
