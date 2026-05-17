@@ -49,15 +49,9 @@ def _derive_issues(
     return issues
 
 
-@router.get("/reports", response_class=HTMLResponse)
-def get_reports_page(request: Request):
-    return templates.TemplateResponse("reports.html", {"request": request})
-
-
-@router.get("/api/reports")
-def get_reports():
-    db = get_db()
-    routes = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
+def _build_route_data(db, kiosk_only: bool = False) -> list:
+    where = "WHERE kiosk_visible = 1" if kiosk_only else ""
+    routes = db.execute(f"SELECT * FROM routes {where} ORDER BY created_at").fetchall()
     result = []
     today = date.today()
 
@@ -157,8 +151,21 @@ def get_reports():
         route_dict["results_by_date"] = {d: slots for d, slots in sorted(by_date.items())}
         result.append(route_dict)
 
-    db.close()
     return result
+
+
+@router.get("/reports", response_class=HTMLResponse)
+def get_reports_page(request: Request):
+    return templates.TemplateResponse("reports.html", {"request": request})
+
+
+@router.get("/api/reports")
+def get_reports():
+    db = get_db()
+    try:
+        return _build_route_data(db)
+    finally:
+        db.close()
 
 
 @router.get("/api/reports/{route_id}")

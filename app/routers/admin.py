@@ -57,6 +57,18 @@ def create_route(body: RouteCreate):
 
     name = body.name or route_display_name(body.origin_crs, body.destination_crs, body.change_crs)
     db = get_db()
+
+    if body.kiosk_visible:
+        kiosk_count = db.execute(
+            "SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1"
+        ).fetchone()[0]
+        if kiosk_count >= 3:
+            db.close()
+            raise HTTPException(
+                status_code=422,
+                detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+            )
+
     cur = db.execute(
         """INSERT INTO routes
            (name, origin_crs, change_crs, destination_crs, scan_days, lookahead_weeks, threshold_pct, kiosk_visible)
@@ -101,6 +113,16 @@ def update_route(route_id: int, body: RouteUpdate):
         fields.append("threshold_pct = ?")
         params.append(body.threshold_pct)
     if body.kiosk_visible is not None:
+        if body.kiosk_visible and not row["kiosk_visible"]:
+            kiosk_count = db.execute(
+                "SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1"
+            ).fetchone()[0]
+            if kiosk_count >= 3:
+                db.close()
+                raise HTTPException(
+                    status_code=422,
+                    detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+                )
         fields.append("kiosk_visible = ?")
         params.append(int(body.kiosk_visible))
 
