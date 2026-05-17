@@ -38,6 +38,15 @@ def get_station_name(crs: str) -> str | None:
     return _STATION_LIST.get(crs.upper())
 
 
+def route_display_name(origin_crs: str, destination_crs: str, change_crs: str | None = None) -> str:
+    o = get_station_name(origin_crs) or origin_crs
+    d = get_station_name(destination_crs) or destination_crs
+    if change_crs:
+        c = get_station_name(change_crs) or change_crs
+        return f"{o} to {d} via {c}"
+    return f"{o} to {d}"
+
+
 def get_coords(crs: str) -> tuple[float, float]:
     crs = crs.upper()
     db = get_db()

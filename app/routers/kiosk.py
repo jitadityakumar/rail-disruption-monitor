@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from database import get_db
-from stations import get_station_name
+from stations import get_station_name, route_display_name
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -68,6 +68,7 @@ def get_kiosk_data():
         result.append({
             "id": route["id"],
             "name": route["name"],
+            "display_name": route_display_name(route["origin_crs"], route["destination_crs"], route["change_crs"]),
             "crs_display": " → ".join(crs_parts),
             "last_scanned_at": route["last_scanned_at"],
             "disruptions": [

@@ -67,7 +67,7 @@ async function loadKiosk() {
     return `
       <div class="route-display-card ${hasDisruption ? 'has-disruption' : ''}">
         <div class="route-name">
-          ${esc(route.name)}
+          ${esc(route.display_name)}
           <span style="font-size:0.8rem;color:var(--text-muted);font-weight:400;margin-left:0.5rem">${esc(route.crs_display)}</span>
         </div>
         ${disruptionHtml}

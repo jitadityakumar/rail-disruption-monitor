@@ -216,7 +216,7 @@ async function loadRoutes() {
     const crsParts = [r.origin_crs, r.change_crs, r.destination_crs].filter(Boolean);
     return `
     <tr>
-      <td><strong>${esc(r.name)}</strong><br><span class="info-msg">${esc(crsParts.join(' → '))}</span></td>
+      <td><strong>${esc(r.display_name)}</strong><br><span class="info-msg">${esc(crsParts.join(' → '))}</span></td>
       <td>${r.scan_days.map(d => DAY_NAMES[d]).join(', ')}</td>
       <td>${r.lookahead_weeks}w</td>
       <td>${r.threshold_pct}%</td>

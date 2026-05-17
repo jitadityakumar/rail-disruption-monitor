@@ -73,7 +73,7 @@ async function loadReports() {
       <div class="card" style="${hasDisruption ? 'border-color:var(--red)' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
           <div>
-            <strong>${esc(route.name)}</strong>
+            <strong>${esc(route.display_name)}</strong>
             <span class="tag" style="margin-left:0.5rem">${esc(crsParts.join(' → '))}</span>
           </div>
           <div class="info-msg" style="font-size:0.78rem">
@@ -94,7 +94,7 @@ async function showDetail(routeId, date, key) {
   const data = await fetchJSON(`/api/reports/${routeId}`);
   const result = data.results.find(r => r.target_date === date && r.key === key);
   const legLabel = data.route.leg_labels.find(l => l.key === key)?.label || key;
-  document.getElementById('detail-title').textContent = `${data.route.name} — ${formatDate(date)} (${legLabel})`;
+  document.getElementById('detail-title').textContent = `${data.route.display_name} — ${formatDate(date)} (${legLabel})`;
 
   if (!result) {
     document.getElementById('detail-body').innerHTML = '<div class="info-msg">No data for this leg.</div>';

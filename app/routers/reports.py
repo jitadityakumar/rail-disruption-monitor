@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from database import get_db
-from stations import get_station_name
+from stations import get_station_name, route_display_name
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -45,6 +45,7 @@ def get_reports():
         route_dict["kiosk_visible"] = bool(route_dict["kiosk_visible"])
         route_dict["has_change"] = bool(route["change_crs"])
         route_dict["leg_labels"] = _route_leg_labels(route)
+        route_dict["display_name"] = route_display_name(route["origin_crs"], route["destination_crs"], route["change_crs"])
 
         scan_rows = db.execute(
             """SELECT target_date, direction, leg, status, duration_s, disruption_reasons, scanned_at
@@ -105,6 +106,7 @@ def get_route_report(route_id: int):
         "route": {
             "id": route["id"],
             "name": route["name"],
+            "display_name": route_display_name(route["origin_crs"], route["destination_crs"], route["change_crs"]),
             "origin_crs": route["origin_crs"],
             "change_crs": route["change_crs"],
             "destination_crs": route["destination_crs"],

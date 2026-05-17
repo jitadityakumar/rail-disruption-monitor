@@ -9,7 +9,7 @@ from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run
-from stations import get_station_name, validate_crs
+from stations import get_station_name, route_display_name, validate_crs
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -57,6 +57,7 @@ def list_routes():
         d["has_baseline"] = row["id"] in baseline_route_ids
         d["has_change"] = bool(row["change_crs"])
         d["leg_labels"] = _route_leg_labels(row)
+        d["display_name"] = route_display_name(row["origin_crs"], row["destination_crs"], row["change_crs"])
         result.append(d)
     return result
 
@@ -71,7 +72,7 @@ def create_route(body: RouteCreate):
     if invalid:
         raise HTTPException(status_code=400, detail={"invalid_crs": invalid})
 
-    name = body.name or " → ".join(get_station_name(crs) or crs for crs in crses)
+    name = body.name or route_display_name(body.origin_crs, body.destination_crs, body.change_crs)
     db = get_db()
     cur = db.execute(
         """INSERT INTO routes
