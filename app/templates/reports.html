@@ -1,33 +1,387 @@
 {% extends "base.html" %}
 {% block title %}Reports — Rail Monitor{% endblock %}
+{% block main_class %}report-main{% endblock %}
 {% block content %}
 
-<div class="section">
-  <div class="section-header">
-    <h2>Disruption Reports</h2>
-    <span class="info-msg" id="reports-updated"></span>
+<div class="report-page">
+  <div class="report-page-header">
+    <h1>Planned Engineering Works</h1>
+    <span class="report-page-updated" id="reports-updated"></span>
   </div>
-  <div id="reports-container">
+  <div class="report-cards" id="reports-container">
     <div class="info-msg" style="text-align:center;padding:2rem">Loading…</div>
   </div>
 </div>
 
-<!-- Detail Modal -->
-<div class="modal-overlay" id="detail-modal">
-  <div class="modal">
+<!-- Day-detail modal -->
+<div class="modal-overlay" id="day-detail-modal">
+  <div class="modal" style="max-width:700px">
     <div class="modal-header">
-      <h3 id="detail-title">Detail</h3>
-      <button class="modal-close" onclick="closeModal('detail-modal')">✕</button>
+      <h3 id="day-detail-title">Detail</h3>
+      <button class="modal-close" onclick="closeModal('day-detail-modal')">✕</button>
     </div>
-    <div id="detail-body"></div>
+    <div id="day-detail-body"></div>
   </div>
 </div>
 
 {% endblock %}
 {% block scripts %}
 <script>
-const STATUS_ORDER = { DISRUPTED: 0, UNKNOWN: 1, NORMAL: 2 };
+/* ── SVG icons ── */
+const SVG_RETURN = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#888899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-5px"><path d="M4 8h13a4 4 0 0 1 0 8h-2"/><polyline points="7 5 4 8 7 11"/><path d="M20 16H7a4 4 0 0 1 0-8"/><polyline points="17 19 20 16 17 13"/></svg>`;
 
+const SVG_WARN_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e84545" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+
+const SVG_WARN_SM = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e84545" stroke-width="2.2" stroke-linecap="round" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+
+const SVG_CHECK = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2ec76a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+function issueIconSvg(type) {
+  const s = 'stroke="#f87171"';
+  const common = `width="18" height="18" viewBox="0 0 24 24" fill="none" ${s} stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+  if (type === 'bus') return `<svg ${common}><path d="M4 17V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v11"/><path d="M4 11h16"/><path d="M4 17h16"/><path d="M7 17v2"/><path d="M17 17v2"/><circle cx="8" cy="14.5" r="0.6" fill="#f87171"/><circle cx="16" cy="14.5" r="0.6" fill="#f87171"/></svg>`;
+  if (type === 'time') return `<svg ${common}><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`;
+  if (type === 'route') return `<svg ${common}><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h6a4 4 0 0 1 0 8h-2a4 4 0 0 0 0 8h6"/></svg>`;
+  /* other */
+  return `<svg ${common}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+}
+
+/* ── Date helpers ── */
+function toISO(dt) {
+  return dt.getFullYear() + '-' +
+    String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+    String(dt.getDate()).padStart(2, '0');
+}
+
+function getMonday(d) {
+  const dt = new Date(d);
+  dt.setHours(0, 0, 0, 0);
+  const day = dt.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setDate(dt.getDate() + diff);
+  return dt;
+}
+
+function formatDateShort(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+/* ── Issue rendering ── */
+function issueRowHtml(issue) {
+  const pill = issue.pill ? `<span class="issue-pill">${esc(issue.pill)}</span>` : '';
+  return `
+    <div class="issue-row">
+      <div class="issue-icon-tile">${issueIconSvg(issue.type)}</div>
+      <div class="issue-row-body">
+        <div class="issue-row-title-line">
+          <span class="issue-row-title">${esc(issue.title)}</span>
+          ${pill}
+        </div>
+      </div>
+    </div>`;
+}
+
+function issueChipText(issue) {
+  if (issue.type === 'time') return issue.pill || 'Journey longer';
+  if (issue.type === 'route') return 'No direct route';
+  if (issue.type === 'bus') return 'Bus replacement';
+  const t = issue.title || 'Issue';
+  return t.length > 22 ? t.slice(0, 22) + '…' : t;
+}
+
+function issueChipHtml(issue) {
+  return `<span class="issue-chip"><span class="issue-chip-icon">${issueIconSvg(issue.type)}</span>${esc(issueChipText(issue))}</span>`;
+}
+
+/* aggregate issues from all DISRUPTED legs on a given day, deduped by type */
+function aggregateIssues(dayData) {
+  const seen = new Set();
+  const issues = [];
+  for (const leg of (dayData.legs || [])) {
+    if (leg.status !== 'DISRUPTED') continue;
+    for (const issue of (leg.issues || [])) {
+      if (!seen.has(issue.type)) {
+        seen.add(issue.type);
+        issues.push(issue);
+      }
+    }
+  }
+  return issues;
+}
+
+/* ── Disruption items ── */
+function fullDisruptionItemHtml(dayIso, dayData) {
+  const date = formatDateShort(dayIso);
+  const issues = aggregateIssues(dayData);
+  const issuesHtml = issues.map(issueRowHtml).join('');
+  return `
+    <div class="full-disruption-item">
+      <div class="full-disruption-item-header">
+        <div class="full-disruption-item-title-row">
+          ${SVG_WARN_LG}
+          <span class="full-disruption-item-title">Planned engineering works</span>
+        </div>
+        <span class="full-disruption-item-date">${esc(date)}</span>
+      </div>
+      <div class="full-disruption-item-issues">${issuesHtml}</div>
+    </div>`;
+}
+
+function compactDisruptionItemHtml(dayIso, dayData, routeId) {
+  const date = formatDateShort(dayIso);
+  const issues = aggregateIssues(dayData);
+  const chips = issues.map(issueChipHtml).join('');
+  return `
+    <div class="compact-disruption-item" onclick="showDayDetail(${routeId},'${esc(dayIso)}')">
+      <div class="compact-disruption-item-header">
+        <div class="compact-disruption-item-title-row">
+          ${SVG_WARN_SM}
+          <span class="compact-disruption-item-title">Planned engineering works</span>
+        </div>
+        <span class="compact-disruption-item-date">${esc(date)}</span>
+      </div>
+      <div class="compact-disruption-item-chips">${chips}</div>
+    </div>`;
+}
+
+function disruptionDetailHtml(route) {
+  const perDay = route.per_day || {};
+  const disrupted = Object.entries(perDay)
+    .filter(([, d]) => d.status === 'disrupted')
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  if (disrupted.length === 0) {
+    console.warn('disrupted_day_count>0 but no disrupted entries in per_day', route.id);
+    return clearStateHtml(route);
+  }
+
+  const compact = disrupted.length > 1;
+  const extraClass = compact ? 'disruption-detail--compact' : 'disruption-detail--full';
+  const header = compact
+    ? `<div class="disruption-detail-header">
+         <span>${disrupted.length} disrupted days</span>
+         <span class="disruption-detail-tap">tap a day for details</span>
+       </div>`
+    : '';
+
+  const items = disrupted.map(([iso, dayData]) =>
+    compact
+      ? compactDisruptionItemHtml(iso, dayData, route.id)
+      : fullDisruptionItemHtml(iso, dayData)
+  ).join('');
+
+  return `<div class="disruption-detail ${extraClass}">${header}${items}</div>`;
+}
+
+function clearStateHtml(route) {
+  const fc = route.first_clear_date;
+  const nextLine = fc
+    ? `<div class="clear-state-next">Next monitored: ${esc(formatDateShort(fc))}</div>`
+    : '';
+  return `
+    <div class="clear-state">
+      <div class="clear-state-icon">${SVG_CHECK}</div>
+      <div class="clear-state-label">All monitored dates clear</div>
+      ${nextLine}
+    </div>`;
+}
+
+/* ── Mini-calendar ── */
+function miniCalendarHtml(route) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayISO = toISO(today);
+  const startMon = getMonday(today);
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const scanDays = new Set(route.scan_days);
+  const perDay = route.per_day || {};
+
+  const labelsHtml = DAY_LABELS.map((lbl, i) =>
+    `<div class="mini-cal-day-label${scanDays.has(i) ? '' : ' mini-cal-day-label--dim'}">${lbl}</div>`
+  ).join('');
+
+  let weeksHtml = '';
+  for (let w = 0; w < 8; w++) {
+    let cellsHtml = '';
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(startMon);
+      dt.setDate(startMon.getDate() + w * 7 + d);
+      const iso = toISO(dt);
+      const isPast = dt < today;
+      const isToday = iso === todayISO;
+      const inScanDays = scanDays.has(d);
+      const dayData = perDay[iso];
+
+      let cellClass = 'mini-cal-cell';
+      if (!inScanDays) {
+        cellClass += ' mini-cal-cell--unselected';
+      } else if (isPast) {
+        cellClass += (dayData && dayData.status === 'disrupted')
+          ? ' mini-cal-cell--past-disrupted'
+          : ' mini-cal-cell--past';
+      } else if (dayData) {
+        const s = dayData.status === 'unknown' ? 'future' : dayData.status;
+        cellClass += ` mini-cal-cell--${s}`;
+      } else {
+        cellClass += ' mini-cal-cell--future';
+      }
+      if (isToday) cellClass += ' mini-cal-cell--today';
+
+      const showMonth = dt.getDate() === 1 || (w === 0 && d === 0);
+      const monthHtml = showMonth ? `<div class="mini-cal-month">${MONTHS[dt.getMonth()]}</div>` : '';
+      const clickable = inScanDays && dayData;
+      const onclick = clickable ? ` onclick="showDayDetail(${route.id},'${iso}')"` : '';
+
+      cellsHtml += `<div class="${cellClass}"${onclick}>${monthHtml}<div class="mini-cal-date">${dt.getDate()}</div></div>`;
+    }
+    weeksHtml += `<div class="mini-cal-week">${cellsHtml}</div>`;
+  }
+
+  return `
+    <div class="mini-calendar">
+      <div class="mini-cal-day-labels">${labelsHtml}</div>
+      <div class="mini-cal-weeks">${weeksHtml}</div>
+    </div>`;
+}
+
+/* ── Legend ── */
+const LEGEND_HTML = `
+  <div class="report-legend">
+    <div class="report-legend-item">
+      <div class="report-legend-swatch" style="background:#2ec76a"></div>
+      <span class="report-legend-label">Clear</span>
+    </div>
+    <div class="report-legend-item">
+      <div class="report-legend-swatch" style="background:#e84545"></div>
+      <span class="report-legend-label">Disrupted</span>
+    </div>
+    <div class="report-legend-item">
+      <div class="report-legend-swatch" style="background:#252530;border:1px solid #32323f"></div>
+      <span class="report-legend-label">Not yet scanned</span>
+    </div>
+    <div class="report-legend-item">
+      <div class="report-legend-swatch" style="background:#18181e;border:1px solid #2c2c38"></div>
+      <span class="report-legend-label">Not monitored</span>
+    </div>
+    <div class="report-legend-item">
+      <div class="report-legend-swatch report-legend-swatch--today"></div>
+      <span class="report-legend-label">Today</span>
+    </div>
+  </div>`;
+
+/* ── Route card ── */
+function routeCardHtml(route) {
+  const disrupted = route.disrupted_day_count > 0;
+  const borderClass = disrupted ? ' report-card--disrupted' : '';
+
+  const kindBadge = route.has_change
+    ? `<span class="kind-badge kind-badge--change">Change</span>`
+    : `<span class="kind-badge kind-badge--direct">Direct</span>`;
+
+  const viaHtml = route.change_name
+    ? ` <span class="route-title-via">via ${esc(route.change_name)}</span>`
+    : '';
+
+  const scannedText = route.last_scanned_at
+    ? `Scanned ${route.last_scanned_at.slice(0, 10)}`
+    : 'Never scanned';
+
+  const pillClass = disrupted ? 'status-pill--disrupted' : 'status-pill--clear';
+  const pillText = disrupted
+    ? `${route.disrupted_day_count} disruption${route.disrupted_day_count !== 1 ? 's' : ''}`
+    : 'All clear';
+
+  const bodyHtml = disrupted ? disruptionDetailHtml(route) : clearStateHtml(route);
+
+  return `
+    <div class="report-card${borderClass}">
+      <div class="report-card-header">
+        <div class="route-meta">
+          ${kindBadge}
+          <div class="route-title">
+            ${SVG_RETURN}
+            ${esc(route.origin_name)} to ${esc(route.destination_name)}${viaHtml}
+          </div>
+        </div>
+        <div class="route-status">
+          <span class="route-status-scanned">${esc(scannedText)}</span>
+          <div class="status-pill ${pillClass}">
+            <div class="status-dot"></div>
+            ${esc(pillText)}
+          </div>
+        </div>
+      </div>
+      ${bodyHtml}
+      ${miniCalendarHtml(route)}
+      ${LEGEND_HTML}
+    </div>`;
+}
+
+/* ── Day-detail modal ── */
+async function showDayDetail(routeId, dateISO) {
+  const data = await fetchJSON(`/api/reports/${routeId}`).catch(() => null);
+  if (!data) return;
+
+  document.getElementById('day-detail-title').textContent =
+    `${data.route.display_name} — ${formatDateShort(dateISO)}`;
+
+  const legResults = data.results.filter(r => r.target_date === dateISO);
+  const legLabelMap = Object.fromEntries(data.route.leg_labels.map(l => [l.key, l.label]));
+
+  if (!legResults.length) {
+    document.getElementById('day-detail-body').innerHTML =
+      '<div class="info-msg">No scan results for this date yet.</div>';
+  } else {
+    const legsHtml = legResults.map(r => {
+      const label = legLabelMap[r.key] || r.key;
+      const dur = r.duration_s ? `<span class="info-msg" style="margin-left:0.75rem">${Math.round(r.duration_s / 60)} min total</span>` : '';
+      const reasons = r.disruption_reasons;
+      const steps = r.steps;
+      const reasonsHtml = (reasons.length && r.status === 'DISRUPTED') ? `
+        <div style="margin:0.6rem 0 0.4rem">
+          <strong style="font-size:0.82rem">Reasons:</strong>
+          <ul style="margin:0.3rem 0 0;padding-left:1.2rem;font-size:0.82rem">
+            ${reasons.map(rx => `<li>${esc(rx)}</li>`).join('')}
+          </ul>
+        </div>` : '';
+      const stepsHtml = steps.length ? `
+        <div style="margin-top:0.6rem;overflow-x:auto">
+          <table>
+            <thead><tr><th>From</th><th>To</th><th>Type</th><th>Operator</th><th>Line</th></tr></thead>
+            <tbody>
+              ${steps.map(s => `<tr>
+                <td>${esc(s.dep_stop || '')}</td>
+                <td>${esc(s.arr_stop || '')}</td>
+                <td><span class="badge badge-${s.vehicle_type === 'BUS' ? 'DISRUPTED' : 'NORMAL'}">${esc(s.vehicle_type || '')}</span></td>
+                <td>${esc(s.operator || '')}</td>
+                <td>${esc(s.line_name || '')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : '';
+      return `
+        <div class="day-detail-leg">
+          <div class="day-detail-leg-header">
+            <span class="day-detail-leg-label">${esc(label)}</span>
+            <span class="badge badge-${r.status}">${r.status}</span>
+            ${dur}
+          </div>
+          ${reasonsHtml}${stepsHtml}
+          <div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">Scanned ${esc(r.scanned_at)} UTC</div>
+        </div>`;
+    }).join('<hr style="border:none;border-top:1px solid var(--border-sub);margin:0.75rem 0">');
+    document.getElementById('day-detail-body').innerHTML = legsHtml;
+  }
+  openModal('day-detail-modal');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+/* ── Main loader ── */
 async function loadReports() {
   const routes = await fetchJSON('/api/reports').catch(() => []);
   const container = document.getElementById('reports-container');
@@ -38,108 +392,8 @@ async function loadReports() {
     return;
   }
 
-  container.innerHTML = routes.map(route => {
-    const dates = Object.keys(route.results_by_date).sort();
-    const legKeys = route.leg_labels.map(l => l.key);
-    const hasDisruption = dates.some(d =>
-      legKeys.some(k => route.results_by_date[d][k]?.status === 'DISRUPTED')
-    );
-
-    const legendHtml = `<div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">
-      ${route.leg_labels.map(l => esc(l.label)).join(' / ')} — click any cell for detail
-    </div>`;
-
-    const gridHtml = dates.length ? `
-      <div class="date-grid">
-        ${dates.map(date => `
-          <div class="date-group">
-            <div class="date-label">${formatDate(date)}</div>
-            <div style="display:flex;gap:3px">
-              ${route.leg_labels.map(({ key, label }) => {
-                const cell = route.results_by_date[date][key];
-                const status = cell ? cell.status : 'UNKNOWN';
-                const reasons = cell && cell.disruption_reasons.length ? cell.disruption_reasons.map(esc).join('; ') : '';
-                return `<div class="grid-cell cell-${status}" title="${esc(label)} — ${status}${reasons ? ': ' + reasons : ''}" onclick="showDetail(${route.id},'${date}','${key}')"></div>`;
-              }).join('')}
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      ${legendHtml}
-    ` : '<div class="info-msg">No scan results yet. Run a scan from Admin.</div>';
-
-    const crsParts = [route.origin_crs, route.change_crs, route.destination_crs].filter(Boolean);
-    return `
-      <div class="card" style="${hasDisruption ? 'border-color:var(--red)' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
-          <div>
-            <strong>${esc(route.display_name)}</strong>
-            <span class="tag" style="margin-left:0.5rem">${esc(crsParts.join(' → '))}</span>
-          </div>
-          <div class="info-msg" style="font-size:0.78rem">
-            ${route.last_scanned_at ? 'Scanned ' + route.last_scanned_at.slice(0,10) : 'Never scanned'}
-          </div>
-        </div>
-        ${gridHtml}
-      </div>`;
-  }).join('');
+  container.innerHTML = routes.map(routeCardHtml).join('');
 }
-
-function formatDate(iso) {
-  const d = new Date(iso + 'T00:00:00');
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-async function showDetail(routeId, date, key) {
-  const data = await fetchJSON(`/api/reports/${routeId}`);
-  const result = data.results.find(r => r.target_date === date && r.key === key);
-  const legLabel = data.route.leg_labels.find(l => l.key === key)?.label || key;
-  document.getElementById('detail-title').textContent = `${data.route.display_name} — ${formatDate(date)} (${legLabel})`;
-
-  if (!result) {
-    document.getElementById('detail-body').innerHTML = '<div class="info-msg">No data for this leg.</div>';
-  } else {
-    const reasons = result.disruption_reasons;
-    const steps = result.steps;
-    document.getElementById('detail-body').innerHTML = `
-      <div style="margin-bottom:0.75rem">
-        <span class="badge badge-${result.status}">${result.status}</span>
-        ${result.duration_s ? `<span class="info-msg" style="margin-left:0.75rem">${Math.round(result.duration_s/60)} min total</span>` : ''}
-      </div>
-      ${reasons.length ? `
-        <div style="margin-bottom:0.75rem">
-          <strong style="font-size:0.85rem">Disruption reasons:</strong>
-          <ul style="margin:0.4rem 0 0;padding-left:1.2rem;font-size:0.85rem">
-            ${reasons.map(r => `<li>${esc(r)}</li>`).join('')}
-          </ul>
-        </div>` : ''}
-      ${steps.length ? `
-        <div>
-          <strong style="font-size:0.85rem">Journey legs:</strong>
-          <table style="margin-top:0.5rem">
-            <thead><tr><th>From</th><th>To</th><th>Type</th><th>Operator</th><th>Line</th></tr></thead>
-            <tbody>
-              ${steps.map(s => `
-                <tr>
-                  <td>${esc(s.dep_stop)}</td>
-                  <td>${esc(s.arr_stop)}</td>
-                  <td><span class="badge ${s.vehicle_type === 'BUS' ? 'badge-DISRUPTED' : 'badge-NORMAL'}">${esc(s.vehicle_type)}</span></td>
-                  <td>${esc(s.operator)}</td>
-                  <td>${esc(s.line_name)}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>` : ''}
-      <div class="info-msg" style="margin-top:0.75rem;font-size:0.75rem">
-        Scanned at ${result.scanned_at} UTC
-        <br><em>NORMAL status may be stale if Google hasn't updated engineering data yet.</em>
-      </div>`;
-  }
-  openModal('detail-modal');
-}
-
-function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 loadReports();
 </script>
