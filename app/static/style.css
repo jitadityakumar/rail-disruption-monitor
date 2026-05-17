@@ -355,7 +355,12 @@ tr:hover td { background: var(--surface2); }
 .report-page-header h1 { font-size: 32px; font-weight: 800; color: var(--text-pri); letter-spacing: -0.03em; margin: 0; }
 .report-page-updated { font-size: 14px; color: var(--text-muted); font-weight: 500; }
 
-.report-cards { display: flex; gap: 20px; flex: 1; }
+.report-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(33.333% - 14px), 1fr));
+  gap: 20px;
+  align-content: start;
+}
 
 /* Route card */
 .report-card {
@@ -658,4 +663,45 @@ tr:hover td { background: var(--surface2); }
 .day-detail-leg-label { font-weight: 600; font-size: 0.9rem; }
 
 main.report-main { max-width: none; padding: 0; }
+
+/* ── Kiosk page ── */
+.kiosk-body { height: 100vh; overflow: hidden; }
+.kiosk-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 32px;
+  box-sizing: border-box;
+  gap: 16px;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+.kiosk-header {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.kiosk-title { font-size: 13px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.07em; text-transform: uppercase; }
+.kiosk-date { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.kiosk-clock { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-pri); }
+.kiosk-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 20px;
+  overflow: hidden;
+}
+.kiosk-cards .report-card {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.kiosk-footer {
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding-bottom: 4px;
+}
 
