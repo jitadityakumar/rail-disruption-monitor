@@ -48,31 +48,27 @@
       <button class="modal-close" onclick="closeModal('add-modal')">✕</button>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
-      <label>Name (optional — auto-generated if blank)</label>
-      <input type="text" id="route-name" placeholder="e.g. Barnes → Waterloo">
-    </div>
-    <div class="form-group" style="margin-bottom:0.75rem">
       <label>From</label>
       <div class="autocomplete-wrapper" id="ac-origin-wrapper">
-        <input class="crs-text-input" id="ac-origin-input" placeholder="BNS…" autocomplete="off">
+        <input type="text" id="ac-origin-input" autocomplete="off">
         <div class="autocomplete-list" id="ac-origin-list" style="display:none"></div>
       </div>
       <div class="error-msg" id="ac-origin-error"></div>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
-      <label>Change at <span class="info-msg">(optional)</span></label>
-      <div class="autocomplete-wrapper" id="ac-change-wrapper">
-        <input class="crs-text-input" id="ac-change-input" placeholder="CLJ… or leave blank" autocomplete="off">
-        <div class="autocomplete-list" id="ac-change-list" style="display:none"></div>
-      </div>
-    </div>
-    <div class="form-group" style="margin-bottom:0.75rem">
       <label>To</label>
       <div class="autocomplete-wrapper" id="ac-dest-wrapper">
-        <input class="crs-text-input" id="ac-dest-input" placeholder="WAT…" autocomplete="off">
+        <input type="text" id="ac-dest-input" autocomplete="off">
         <div class="autocomplete-list" id="ac-dest-list" style="display:none"></div>
       </div>
       <div class="error-msg" id="ac-dest-error"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:0.75rem">
+      <label>Change at <span class="info-msg">(optional)</span></label>
+      <div class="autocomplete-wrapper" id="ac-change-wrapper">
+        <input type="text" id="ac-change-input" autocomplete="off">
+        <div class="autocomplete-list" id="ac-change-list" style="display:none"></div>
+      </div>
     </div>
     <div class="form-group" style="margin-bottom:0.75rem">
       <label>Scan days</label>
@@ -289,7 +285,6 @@ function openAddModal() {
   acOrigin.reset();
   acChange.reset();
   acDest.reset();
-  document.getElementById('route-name').value = '';
   document.getElementById('ac-origin-error').textContent = '';
   document.getElementById('ac-dest-error').textContent = '';
   document.getElementById('add-error').textContent = '';
@@ -316,7 +311,6 @@ async function submitAddRoute(btn) {
   err.textContent = '';
   try {
     await postJSON('/api/routes', {
-      name: document.getElementById('route-name').value.trim(),
       origin_crs,
       change_crs,
       destination_crs,
