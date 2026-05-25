@@ -8,9 +8,28 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .kiosk-body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+    .kiosk-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; padding: 0; gap: 0; }
+    .kiosk-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 24px; border-bottom: 1px solid var(--border-sub);
+      flex-shrink: 0;
+    }
+    .kiosk-title { font-size: 13px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.07em; text-transform: uppercase; }
+    .kiosk-date  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .kiosk-clock { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-pri); }
+    .kiosk-main  { flex: 1; overflow: hidden; }
+    .kiosk-main .reports-layout { height: 100%; }
+    .kiosk-footer {
+      font-size: 11px; color: var(--text-muted); text-align: center;
+      padding: 6px; border-top: 1px solid var(--border-sub); flex-shrink: 0;
+    }
+  </style>
 </head>
 <body class="kiosk-body">
 <div class="kiosk-page">
+
   <div class="kiosk-header">
     <div>
       <div class="kiosk-title">Rail Disruption Monitor</div>
@@ -19,16 +38,32 @@
     <div class="kiosk-clock" id="kiosk-clock"></div>
   </div>
 
-  <div class="kiosk-cards" id="kiosk-container">
-    <div class="info-msg" style="text-align:center;padding:3rem;width:100%">Loading…</div>
+  <div class="kiosk-main">
+    <div class="reports-layout">
+      <!-- Left: unified calendar -->
+      <div class="reports-cal-panel" id="calPanel">
+        <div class="info-msg" style="padding:2rem;text-align:center">Loading…</div>
+      </div>
+      <!-- Right: routes + disruption list -->
+      <div class="reports-disrupt-panel">
+        <div class="reports-panel-header">
+          <span class="reports-panel-title">Routes Monitored</span>
+        </div>
+        <div id="routesList"><div class="info-msg" style="padding:1rem">Loading…</div></div>
+        <div class="reports-panel-header" style="margin-top:8px">
+          <span class="reports-panel-title">Upcoming Disruptions</span>
+        </div>
+        <div id="disruptionList"><div class="info-msg" style="padding:1rem">Loading…</div></div>
+      </div>
+    </div>
   </div>
 
-  <div class="kiosk-footer" id="kiosk-footer"></div>
+  <div class="kiosk-footer" id="kiosk-footer">Refreshes every 5 minutes</div>
 </div>
 
 <!-- Day-detail modal -->
 <div class="modal-overlay" id="day-detail-modal">
-  <div class="modal" style="max-width:700px">
+  <div class="modal" style="max-width:520px">
     <div class="modal-header">
       <h3 id="day-detail-title">Detail</h3>
       <button class="modal-close" onclick="closeModal('day-detail-modal')">✕</button>
@@ -48,347 +83,243 @@ function updateClock() {
     now.toLocaleDateString('en-GB', { timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/* ── SVG icons ── */
-const SVG_RETURN = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#888899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-5px"><path d="M4 8h13a4 4 0 0 1 0 8h-2"/><polyline points="7 5 4 8 7 11"/><path d="M20 16H7a4 4 0 0 1 0-8"/><polyline points="17 19 20 16 17 13"/></svg>`;
-
-const SVG_WARN_LG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e84545" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
-
-const SVG_WARN_SM = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e84545" stroke-width="2.2" stroke-linecap="round" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
-
-const SVG_CHECK = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2ec76a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-
+/* ── Icons ── */
 function issueIconSvg(type) {
   const s = 'stroke="#f87171"';
-  const common = `width="18" height="18" viewBox="0 0 24 24" fill="none" ${s} stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
-  if (type === 'bus') return `<svg ${common}><path d="M4 17V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v11"/><path d="M4 11h16"/><path d="M4 17h16"/><path d="M7 17v2"/><path d="M17 17v2"/><circle cx="8" cy="14.5" r="0.6" fill="#f87171"/><circle cx="16" cy="14.5" r="0.6" fill="#f87171"/></svg>`;
-  if (type === 'time') return `<svg ${common}><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`;
+  const common = `width="16" height="16" viewBox="0 0 24 24" fill="none" ${s} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"`;
+  if (type === 'bus')   return `<svg ${common}><path d="M4 17V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v11"/><path d="M4 11h16"/><path d="M4 17h16"/><path d="M7 17v2"/><path d="M17 17v2"/><circle cx="8" cy="14.5" r="0.6" fill="#f87171"/><circle cx="16" cy="14.5" r="0.6" fill="#f87171"/></svg>`;
+  if (type === 'time')  return `<svg ${common}><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`;
   if (type === 'route') return `<svg ${common}><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h6a4 4 0 0 1 0 8h-2a4 4 0 0 0 0 8h6"/></svg>`;
   return `<svg ${common}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
 }
 
 /* ── Date helpers ── */
 function toISO(dt) {
-  return dt.getFullYear() + '-' +
-    String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-    String(dt.getDate()).padStart(2, '0');
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
 }
-
-function getMonday(d) {
-  const dt = new Date(d);
-  dt.setHours(0, 0, 0, 0);
-  const day = dt.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  dt.setDate(dt.getDate() + diff);
-  return dt;
+function formatDateFull(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
-
 function formatDateShort(iso) {
-  const d = new Date(iso + 'T00:00:00');
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-/* ── Issue rendering ── */
-function issueRowHtml(issue) {
-  const pill = issue.pill ? `<span class="issue-pill">${esc(issue.pill)}</span>` : '';
-  return `
-    <div class="issue-row">
-      <div class="issue-icon-tile">${issueIconSvg(issue.type)}</div>
-      <div class="issue-row-body">
-        <div class="issue-row-title-line">
-          <span class="issue-row-title">${esc(issue.title)}</span>
-          ${pill}
-        </div>
-      </div>
-    </div>`;
-}
-
-function issueChipText(issue) {
-  if (issue.type === 'time') return issue.pill || 'Journey longer';
-  if (issue.type === 'route') return 'No direct route';
-  if (issue.type === 'bus') return 'Bus replacement';
-  const t = issue.title || 'Issue';
-  return t.length > 22 ? t.slice(0, 22) + '…' : t;
-}
-
-function issueChipHtml(issue) {
-  return `<span class="issue-chip"><span class="issue-chip-icon">${issueIconSvg(issue.type)}</span>${esc(issueChipText(issue))}</span>`;
-}
-
-function aggregateIssues(dayData) {
-  const seen = new Set();
-  const issues = [];
-  for (const leg of (dayData.legs || [])) {
-    if (leg.status !== 'DISRUPTED') continue;
-    for (const issue of (leg.issues || [])) {
-      if (!seen.has(issue.type)) {
-        seen.add(issue.type);
-        issues.push(issue);
-      }
+/* ── Build unified day map from all routes ── */
+function buildDayMap(routes) {
+  const allScanDays = new Set(routes.flatMap(r => r.scan_days));
+  const allDates = new Set(routes.flatMap(r => Object.keys(r.per_day || {})));
+  const dayMap = {};
+  for (const iso of allDates) {
+    const dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7; // Mon=0
+    let anyDisrupted = false;
+    let allScanned = true;
+    const routeDetails = [];
+    for (const route of routes) {
+      if (!route.scan_days.includes(dow)) continue;
+      const dayData = (route.per_day || {})[iso];
+      if (!dayData) { allScanned = false; continue; }
+      if (dayData.status === 'disrupted') anyDisrupted = true;
+      routeDetails.push({ route, dayData });
     }
+    if (!routeDetails.length) continue;
+    const status = anyDisrupted ? 'disrupted' : allScanned ? 'clear' : 'future';
+    dayMap[iso] = { status, routeDetails };
   }
-  return issues;
+  return { dayMap, allScanDays };
 }
 
-/* ── Disruption items ── */
-function fullDisruptionItemHtml(dayIso, dayData) {
-  const date = formatDateShort(dayIso);
-  const issues = aggregateIssues(dayData);
-  return `
-    <div class="full-disruption-item">
-      <div class="full-disruption-item-header">
-        <div class="full-disruption-item-title-row">
-          ${SVG_WARN_LG}
-          <span class="full-disruption-item-title">Planned engineering works</span>
-        </div>
-        <span class="full-disruption-item-date">${esc(date)}</span>
-      </div>
-      <div class="full-disruption-item-issues">${issues.map(issueRowHtml).join('')}</div>
-    </div>`;
-}
+/* ── Calendar ── */
+function renderCalendar(routes, dayMap, allScanDays) {
+  const panel = document.getElementById('calPanel');
+  panel.innerHTML = '';
 
-function compactDisruptionItemHtml(dayIso, dayData, routeId) {
-  const date = formatDateShort(dayIso);
-  const issues = aggregateIssues(dayData);
-  return `
-    <div class="compact-disruption-item" onclick="showDayDetail(${routeId},'${esc(dayIso)}')">
-      <div class="compact-disruption-item-header">
-        <div class="compact-disruption-item-title-row">
-          ${SVG_WARN_SM}
-          <span class="compact-disruption-item-title">Planned engineering works</span>
-        </div>
-        <span class="compact-disruption-item-date">${esc(date)}</span>
-      </div>
-      <div class="compact-disruption-item-chips">${issues.map(issueChipHtml).join('')}</div>
-    </div>`;
-}
-
-function disruptionDetailHtml(route) {
-  const perDay = route.per_day || {};
-  const disrupted = Object.entries(perDay)
-    .filter(([, d]) => d.status === 'disrupted')
-    .sort(([a], [b]) => a.localeCompare(b));
-
-  if (disrupted.length === 0) return clearStateHtml(route);
-
-  const compact = disrupted.length > 1;
-  const extraClass = compact ? 'disruption-detail--compact' : 'disruption-detail--full';
-  const header = compact
-    ? `<div class="disruption-detail-header">
-         <span>${disrupted.length} disrupted days</span>
-         <span class="disruption-detail-tap">tap a day for details</span>
-       </div>`
-    : '';
-
-  const items = disrupted.map(([iso, dayData]) =>
-    compact
-      ? compactDisruptionItemHtml(iso, dayData, route.id)
-      : fullDisruptionItemHtml(iso, dayData)
-  ).join('');
-
-  return `<div class="disruption-detail ${extraClass}">${header}${items}</div>`;
-}
-
-function clearStateHtml(route) {
-  const fc = route.first_clear_date;
-  const nextLine = fc
-    ? `<div class="clear-state-next">Next monitored: ${esc(formatDateShort(fc))}</div>`
-    : '';
-  return `
-    <div class="clear-state">
-      <div class="clear-state-icon">${SVG_CHECK}</div>
-      <div class="clear-state-label">All monitored dates clear</div>
-      ${nextLine}
-    </div>`;
-}
-
-/* ── Mini-calendar ── */
-function miniCalendarHtml(route) {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setHours(0,0,0,0);
   const todayISO = toISO(today);
-  const startMon = getMonday(today);
+  const DOW = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const frag = document.createDocumentFragment();
 
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const scanDays = new Set(route.scan_days);
-  const perDay = route.per_day || {};
+  for (let m = 0; m < 2; m++) {
+    const year  = today.getFullYear() + Math.floor((today.getMonth() + m) / 12);
+    const month = (today.getMonth() + m) % 12;
+    const firstDay = new Date(year, month, 1);
+    const lastDay  = new Date(year, month + 1, 0);
+    const startOffset = (firstDay.getDay() + 6) % 7;
 
-  const labelsHtml = DAY_LABELS.map((lbl, i) =>
-    `<div class="mini-cal-day-label${scanDays.has(i) ? '' : ' mini-cal-day-label--dim'}">${lbl}</div>`
-  ).join('');
+    const block = document.createElement('div');
+    block.className = 'reports-month-block';
 
-  let weeksHtml = '';
-  for (let w = 0; w < 8; w++) {
-    let cellsHtml = '';
-    for (let d = 0; d < 7; d++) {
-      const dt = new Date(startMon);
-      dt.setDate(startMon.getDate() + w * 7 + d);
-      const iso = toISO(dt);
-      const isPast = dt < today;
-      const isToday = iso === todayISO;
-      const inScanDays = scanDays.has(d);
-      const dayData = perDay[iso];
+    const title = document.createElement('div');
+    title.className = 'reports-month-title';
+    title.textContent = firstDay.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    block.appendChild(title);
 
-      let cellClass = 'mini-cal-cell';
-      if (!inScanDays) {
-        cellClass += ' mini-cal-cell--unselected';
-      } else if (isPast) {
-        cellClass += (dayData && dayData.status === 'disrupted')
-          ? ' mini-cal-cell--past-disrupted'
-          : ' mini-cal-cell--past';
-      } else if (dayData) {
-        const s = dayData.status === 'unknown' ? 'future' : dayData.status;
-        cellClass += ` mini-cal-cell--${s}`;
-      } else {
-        cellClass += ' mini-cal-cell--future';
-      }
-      if (isToday) cellClass += ' mini-cal-cell--today';
+    const grid = document.createElement('div');
+    grid.className = 'reports-cal-grid';
 
-      const showMonth = dt.getDate() === 1 || (w === 0 && d === 0);
-      const monthHtml = showMonth ? `<div class="mini-cal-month">${MONTHS[dt.getMonth()]}</div>` : '';
-      const clickable = inScanDays && dayData;
-      const onclick = clickable ? ` onclick="showDayDetail(${route.id},'${iso}')"` : '';
-
-      cellsHtml += `<div class="${cellClass}"${onclick}>${monthHtml}<div class="mini-cal-date">${dt.getDate()}</div></div>`;
+    for (const lbl of DOW) {
+      const h = document.createElement('div');
+      h.className = 'reports-cal-dow';
+      h.textContent = lbl;
+      grid.appendChild(h);
     }
-    weeksHtml += `<div class="mini-cal-week">${cellsHtml}</div>`;
+
+    for (let i = 0; i < startOffset; i++) {
+      const e = document.createElement('div');
+      e.className = 'reports-cal-cell reports-cal-cell--empty';
+      grid.appendChild(e);
+    }
+
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      const dateObj = new Date(year, month, day);
+      dateObj.setHours(0,0,0,0);
+      const iso      = toISO(dateObj);
+      const dow      = (dateObj.getDay() + 6) % 7;
+      const isToday  = iso === todayISO;
+      const entry    = dayMap[iso];
+      const monitored = allScanDays.has(dow);
+
+      let state;
+      if (!monitored)  state = 'unmonitored';
+      else if (entry)  state = entry.status;
+      else             state = 'future';
+
+      const cell = document.createElement('div');
+      cell.className = `reports-cal-cell reports-cal-cell--${state}${isToday ? ' reports-cal-cell--today' : ''}`;
+      cell.textContent = day;
+
+      if (entry) {
+        cell.style.cursor = 'pointer';
+        cell.addEventListener('click', () => showDayDetail(iso, entry.routeDetails));
+      }
+
+      grid.appendChild(cell);
+    }
+
+    block.appendChild(grid);
+    frag.appendChild(block);
   }
 
-  return `
-    <div class="mini-calendar">
-      <div class="mini-cal-day-labels">${labelsHtml}</div>
-      <div class="mini-cal-weeks">${weeksHtml}</div>
-    </div>`;
+  const legend = document.createElement('div');
+  legend.className = 'report-legend';
+  legend.innerHTML = `
+    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#2ec76a"></div><span class="report-legend-label">Clear</span></div>
+    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#e84545"></div><span class="report-legend-label">Disrupted</span></div>
+    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#252530;border:1px solid #32323f"></div><span class="report-legend-label">Pending scan</span></div>
+    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#18181e;border:1px solid #21212a"></div><span class="report-legend-label">Not monitored</span></div>
+    <div class="report-legend-item"><div class="report-legend-swatch report-legend-swatch--today"></div><span class="report-legend-label">Today</span></div>`;
+
+  panel.appendChild(frag);
+  panel.appendChild(legend);
 }
 
-/* ── Legend ── */
-const LEGEND_HTML = `
-  <div class="report-legend">
-    <div class="report-legend-item">
-      <div class="report-legend-swatch" style="background:#2ec76a"></div>
-      <span class="report-legend-label">Clear</span>
-    </div>
-    <div class="report-legend-item">
-      <div class="report-legend-swatch" style="background:#e84545"></div>
-      <span class="report-legend-label">Disrupted</span>
-    </div>
-    <div class="report-legend-item">
-      <div class="report-legend-swatch" style="background:#252530;border:1px solid #32323f"></div>
-      <span class="report-legend-label">Not yet scanned</span>
-    </div>
-    <div class="report-legend-item">
-      <div class="report-legend-swatch" style="background:#18181e;border:1px solid #2c2c38"></div>
-      <span class="report-legend-label">Not monitored</span>
-    </div>
-    <div class="report-legend-item">
-      <div class="report-legend-swatch report-legend-swatch--today"></div>
-      <span class="report-legend-label">Today</span>
-    </div>
-  </div>`;
+/* ── Routes monitored ── */
+const DOW_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-/* ── Route card ── */
-function routeCardHtml(route) {
-  const disrupted = route.disrupted_day_count > 0;
-  const borderClass = disrupted ? ' report-card--disrupted' : '';
-
-  const kindBadge = route.has_change
-    ? `<span class="kind-badge kind-badge--change">Change</span>`
-    : `<span class="kind-badge kind-badge--direct">Direct</span>`;
-
-  const viaHtml = route.change_name
-    ? ` <span class="route-title-via">via ${esc(route.change_name)}</span>`
-    : '';
-
-  const scannedText = route.last_scanned_at
-    ? `Scanned ${route.last_scanned_at.slice(0, 10)}`
-    : 'Never scanned';
-
-  const pillClass = disrupted ? 'status-pill--disrupted' : 'status-pill--clear';
-  const pillText = disrupted
-    ? `${route.disrupted_day_count} disruption${route.disrupted_day_count !== 1 ? 's' : ''}`
-    : 'All clear';
-
-  const bodyHtml = disrupted ? disruptionDetailHtml(route) : clearStateHtml(route);
-
-  return `
-    <div class="report-card${borderClass}">
-      <div class="report-card-header">
-        <div class="route-meta">
-          ${kindBadge}
-          <div class="route-title">
-            ${SVG_RETURN}
-            ${esc(route.origin_name)} to ${esc(route.destination_name)}${viaHtml}
-          </div>
+function renderRoutesList(routes) {
+  const el = document.getElementById('routesList');
+  el.innerHTML = routes.map(route => {
+    const days = route.scan_days.map(d => DOW_LABELS[d]).join(', ');
+    const scanned = route.last_scanned_at ? route.last_scanned_at.slice(0, 10) : 'Never';
+    return `
+      <div class="rmc">
+        <div class="rmc-name">${esc(route.display_name)}</div>
+        <div class="rmc-meta">
+          <span class="rmc-item"><span class="rmc-label">Days</span>${esc(days)}</span>
+          <span class="rmc-item"><span class="rmc-label">Lookahead</span>${route.lookahead_weeks} weeks</span>
+          <span class="rmc-item"><span class="rmc-label">Last scan</span>${esc(scanned)}</span>
+          ${route.first_clear_date ? `<span class="rmc-item"><span class="rmc-label">Next clear</span>${esc(formatDateShort(route.first_clear_date))}</span>` : ''}
         </div>
-        <div class="route-status">
-          <span class="route-status-scanned">${esc(scannedText)}</span>
-          <div class="status-pill ${pillClass}">
-            <div class="status-dot"></div>
-            ${esc(pillText)}
-          </div>
+      </div>`;
+  }).join('');
+}
+
+/* ── Disruption list ── */
+function renderDisruptionList(routes) {
+  const list = document.getElementById('disruptionList');
+  const entries = [];
+  for (const route of routes) {
+    for (const [iso, dayData] of Object.entries(route.per_day || {})) {
+      if (dayData.status !== 'disrupted') continue;
+      entries.push({ iso, route, dayData });
+    }
+  }
+  entries.sort((a, b) => a.iso.localeCompare(b.iso) || a.route.id - b.route.id);
+
+  if (!entries.length) {
+    list.innerHTML = `
+      <div class="clear-state" style="margin-top:1rem">
+        <div class="clear-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2ec76a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="clear-state-label">No disruptions detected</div>
+        <div class="clear-state-next">All monitored dates are clear</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = entries.map(({ iso, route, dayData }) => {
+    const disrupted = (dayData.legs || []).filter(l => l.status === 'DISRUPTED');
+    if (!disrupted.length) return '';
+    const legsHtml = disrupted.map(leg => `
+      <div class="rdc-leg">
+        <div class="rdc-leg-dir">${esc(leg.label)}</div>
+        ${leg.issues.map(issue => `
+          <div class="rdc-leg-reason">${issueIconSvg(issue.type)} ${esc(issue.title)}</div>`).join('')}
+      </div>`).join('');
+    return `
+      <div class="rdc">
+        <div class="rdc-meta">
+          <span class="rdc-date">${esc(formatDateShort(iso))}</span>
+          <span class="rdc-route">${esc(route.display_name)}</span>
         </div>
-      </div>
-      ${bodyHtml}
-      ${miniCalendarHtml(route)}
-      ${LEGEND_HTML}
-    </div>`;
+        <div class="rdc-legs">${legsHtml}</div>
+      </div>`;
+  }).join('');
 }
 
 /* ── Day-detail modal ── */
-async function showDayDetail(routeId, dateISO) {
-  const data = await fetchJSON(`/api/reports/${routeId}`).catch(() => null);
-  if (!data) return;
+function showDayDetail(iso, routeDetails) {
+  document.getElementById('day-detail-title').textContent = formatDateFull(iso);
+  const body = document.getElementById('day-detail-body');
 
-  document.getElementById('day-detail-title').textContent =
-    `${data.route.display_name} — ${formatDateShort(dateISO)}`;
+  const hasDisruptions = routeDetails.some(({ dayData }) =>
+    (dayData.legs || []).some(l => l.status === 'DISRUPTED')
+  );
 
-  const legResults = data.results.filter(r => r.target_date === dateISO);
-  const legLabelMap = Object.fromEntries(data.route.leg_labels.map(l => [l.key, l.label]));
-
-  if (!legResults.length) {
-    document.getElementById('day-detail-body').innerHTML =
-      '<div class="info-msg">No scan results for this date yet.</div>';
-  } else {
-    const legsHtml = legResults.map(r => {
-      const label = legLabelMap[r.key] || r.key;
-      const dur = r.duration_s ? `<span class="info-msg" style="margin-left:0.75rem">${Math.round(r.duration_s / 60)} min total</span>` : '';
-      const reasons = r.disruption_reasons;
-      const steps = r.steps;
-      const reasonsHtml = (reasons.length && r.status === 'DISRUPTED') ? `
-        <div style="margin:0.6rem 0 0.4rem">
-          <strong style="font-size:0.82rem">Reasons:</strong>
-          <ul style="margin:0.3rem 0 0;padding-left:1.2rem;font-size:0.82rem">
-            ${reasons.map(rx => `<li>${esc(rx)}</li>`).join('')}
-          </ul>
-        </div>` : '';
-      const stepsHtml = steps.length ? `
-        <div style="margin-top:0.6rem;overflow-x:auto">
-          <table>
-            <thead><tr><th>From</th><th>To</th><th>Type</th><th>Operator</th><th>Line</th></tr></thead>
-            <tbody>
-              ${steps.map(s => `<tr>
-                <td>${esc(s.dep_stop || '')}</td>
-                <td>${esc(s.arr_stop || '')}</td>
-                <td><span class="badge badge-${s.vehicle_type === 'BUS' ? 'DISRUPTED' : 'NORMAL'}">${esc(s.vehicle_type || '')}</span></td>
-                <td>${esc(s.operator || '')}</td>
-                <td>${esc(s.line_name || '')}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>` : '';
-      return `
-        <div class="day-detail-leg">
-          <div class="day-detail-leg-header">
-            <span class="day-detail-leg-label">${esc(label)}</span>
-            <span class="badge badge-${r.status}">${r.status}</span>
-            ${dur}
-          </div>
-          ${reasonsHtml}${stepsHtml}
-          <div class="info-msg" style="margin-top:0.5rem;font-size:0.75rem">Scanned ${esc(r.scanned_at)} UTC</div>
-        </div>`;
-    }).join('<hr style="border:none;border-top:1px solid var(--border-sub);margin:0.75rem 0">');
-    document.getElementById('day-detail-body').innerHTML = legsHtml;
+  if (!hasDisruptions) {
+    body.innerHTML = `<div class="clear-state" style="min-height:80px">
+      <div class="clear-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2ec76a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="clear-state-label" style="font-size:16px">No disruptions</div>
+    </div>`;
+    openModal('day-detail-modal');
+    return;
   }
+
+  body.innerHTML = routeDetails.map(({ route, dayData }) => {
+    const disrupted = (dayData.legs || []).filter(l => l.status === 'DISRUPTED');
+    if (!disrupted.length) return '';
+    const legsHtml = disrupted.map(leg => `
+      <div class="day-detail-leg">
+        <div class="day-detail-leg-header">
+          <span class="day-detail-leg-label">${esc(leg.label)}</span>
+        </div>
+        ${leg.issues.map(issue => `
+          <div class="issue-row">
+            <div class="issue-icon-tile">${issueIconSvg(issue.type)}</div>
+            <div class="issue-row-body">
+              <div class="issue-row-title-line">
+                <span class="issue-row-title">${esc(issue.title)}</span>
+                ${issue.pill ? `<span class="issue-pill">${esc(issue.pill)}</span>` : ''}
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>`).join('');
+    return `
+      <div style="margin-bottom:1rem">
+        <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem">${esc(route.display_name)}</div>
+        ${legsHtml}
+      </div>`;
+  }).join('<hr style="border:none;border-top:1px solid var(--border-sub);margin:.75rem 0">');
+
   openModal('day-detail-modal');
 }
 
@@ -398,15 +329,19 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 /* ── Main loader ── */
 async function loadKiosk() {
   const routes = await fetchJSON('/api/kiosk').catch(() => []);
-  const container = document.getElementById('kiosk-container');
 
   if (!routes.length) {
-    container.innerHTML = '<div class="info-msg" style="text-align:center;padding:3rem;width:100%">No kiosk routes configured.</div>';
-    document.getElementById('kiosk-footer').textContent = 'Refreshes every 5 minutes';
+    document.getElementById('calPanel').innerHTML =
+      '<div class="info-msg" style="padding:2rem">No kiosk routes configured.</div>';
+    document.getElementById('routesList').innerHTML = '';
+    document.getElementById('disruptionList').innerHTML = '';
     return;
   }
 
-  container.innerHTML = routes.map(routeCardHtml).join('');
+  const { dayMap, allScanDays } = buildDayMap(routes);
+  renderCalendar(routes, dayMap, allScanDays);
+  renderRoutesList(routes);
+  renderDisruptionList(routes);
 
   const scannedAt = routes.find(r => r.last_scanned_at)?.last_scanned_at;
   document.getElementById('kiosk-footer').textContent =

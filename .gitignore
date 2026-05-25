@@ -1,5 +1,6 @@
 # Secrets
 .env
+.env.deploy
 
 # Local dev notes (never push)
 context.md
