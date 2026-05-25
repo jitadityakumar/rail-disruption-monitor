@@ -3,16 +3,15 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run
+from shared_templates import templates
 from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
 
 
 @router.get("/admin", response_class=HTMLResponse)

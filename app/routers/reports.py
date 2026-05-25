@@ -4,13 +4,12 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from database import get_db
+from shared_templates import templates
 from stations import get_station_name, route_display_name, route_leg_labels
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
 
 
 def _derive_issues(
