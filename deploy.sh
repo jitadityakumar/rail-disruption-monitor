@@ -10,7 +10,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
     exit 1
 fi
 
-source "$ENV_FILE"
+# Parse only KEY=VALUE lines — never execute the file as a shell script
+while IFS= read -r line; do
+  [[ -z "$line" || "$line" == \#* ]] && continue
+  [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] && declare "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+done < "$ENV_FILE"
 
 REMOTE="$REMOTE_USER@$REMOTE_HOST"
 

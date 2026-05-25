@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <style>
     .kiosk-body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
-    .kiosk-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .kiosk-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; padding: 0; gap: 0; }
     .kiosk-header {
       display: flex; justify-content: space-between; align-items: center;
       padding: 10px 24px; border-bottom: 1px solid var(--border-sub);
@@ -110,18 +110,20 @@ function buildDayMap(routes) {
   const allDates = new Set(routes.flatMap(r => Object.keys(r.per_day || {})));
   const dayMap = {};
   for (const iso of allDates) {
+    const dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7; // Mon=0
     let anyDisrupted = false;
-    let anyData = false;
+    let allScanned = true;
     const routeDetails = [];
     for (const route of routes) {
+      if (!route.scan_days.includes(dow)) continue;
       const dayData = (route.per_day || {})[iso];
-      if (!dayData) continue;
-      anyData = true;
+      if (!dayData) { allScanned = false; continue; }
       if (dayData.status === 'disrupted') anyDisrupted = true;
       routeDetails.push({ route, dayData });
     }
-    if (!anyData) continue;
-    dayMap[iso] = { status: anyDisrupted ? 'disrupted' : 'clear', routeDetails };
+    if (!routeDetails.length) continue;
+    const status = anyDisrupted ? 'disrupted' : allScanned ? 'clear' : 'future';
+    dayMap[iso] = { status, routeDetails };
   }
   return { dayMap, allScanDays };
 }
@@ -226,6 +228,7 @@ function renderRoutesList(routes) {
           <span class="rmc-item"><span class="rmc-label">Days</span>${esc(days)}</span>
           <span class="rmc-item"><span class="rmc-label">Lookahead</span>${route.lookahead_weeks} weeks</span>
           <span class="rmc-item"><span class="rmc-label">Last scan</span>${esc(scanned)}</span>
+          ${route.first_clear_date ? `<span class="rmc-item"><span class="rmc-label">Next clear</span>${esc(formatDateShort(route.first_clear_date))}</span>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -255,6 +258,7 @@ function renderDisruptionList(routes) {
 
   list.innerHTML = entries.map(({ iso, route, dayData }) => {
     const disrupted = (dayData.legs || []).filter(l => l.status === 'DISRUPTED');
+    if (!disrupted.length) return '';
     const legsHtml = disrupted.map(leg => `
       <div class="rdc-leg">
         <div class="rdc-leg-dir">${esc(leg.label)}</div>
@@ -329,6 +333,7 @@ async function loadKiosk() {
   if (!routes.length) {
     document.getElementById('calPanel').innerHTML =
       '<div class="info-msg" style="padding:2rem">No kiosk routes configured.</div>';
+    document.getElementById('routesList').innerHTML = '';
     document.getElementById('disruptionList').innerHTML = '';
     return;
   }
