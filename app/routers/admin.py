@@ -16,8 +16,7 @@ router = APIRouter()
 
 @router.get("/admin", response_class=HTMLResponse)
 def get_admin_page(request: Request):
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "admin.html", {
         "next_scan": get_next_run(),
     })
 

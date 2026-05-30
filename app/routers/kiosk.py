@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.get("/kiosk", response_class=HTMLResponse)
 def get_kiosk_page(request: Request):
-    return templates.TemplateResponse("kiosk.html", {"request": request})
+    return templates.TemplateResponse(request, "kiosk.html")
 
 
 @router.get("/api/kiosk")

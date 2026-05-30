@@ -155,7 +155,7 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
 
 @router.get("/reports", response_class=HTMLResponse)
 def get_reports_page(request: Request):
-    return templates.TemplateResponse("reports.html", {"request": request})
+    return templates.TemplateResponse(request, "reports.html")
 
 
 @router.get("/api/reports")
