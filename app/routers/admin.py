@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from database import get_db
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
-from scheduler import get_next_run
+from scheduler import get_next_run, get_schedule_label
 from shared_templates import templates
 from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
 
@@ -17,6 +17,7 @@ router = APIRouter()
 @router.get("/admin", response_class=HTMLResponse)
 def get_admin_page(request: Request):
     return templates.TemplateResponse(request, "admin.html", {
+        "schedule_label": get_schedule_label(),
         "next_scan": get_next_run(),
     })
 

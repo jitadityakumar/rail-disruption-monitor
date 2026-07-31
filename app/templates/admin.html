@@ -32,7 +32,7 @@
   <h2>Scheduler</h2>
   <div class="card">
     <p class="info-msg">
-      Weekly scan runs every <strong>{{ next_scan | default('—') }}</strong>
+      Weekly scan runs every <strong>{{ schedule_label | default('—') }}</strong>
       {% if next_scan %}<br><span style="font-size:0.8rem">Next run: {{ next_scan }}</span>{% endif %}
     </p>
     <button onclick="triggerScanAll(this)" style="margin-top:0.5rem">Run all scans now</button>
