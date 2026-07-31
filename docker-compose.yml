@@ -9,8 +9,8 @@ services:
       - db-data:/data
     environment:
       DB_PATH: /data/rail.db
-      SCAN_DOW: sun
-      SCAN_HOUR: "6"
+      SCAN_DOW: wed
+      SCAN_HOUR: "2"
       SCAN_MINUTE: "0"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
