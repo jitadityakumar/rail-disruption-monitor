@@ -27,7 +27,10 @@ def init_db() -> None:
                 threshold_pct   INTEGER NOT NULL DEFAULT 20,
                 kiosk_visible   INTEGER NOT NULL DEFAULT 1,
                 last_scanned_at TEXT,
-                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                scan_source         TEXT NOT NULL DEFAULT 'maps',
+                gtfs_lookahead_weeks INTEGER,
+                gtfs_scan_days      TEXT
             );
 
             CREATE TABLE IF NOT EXISTS station_coords (
@@ -54,7 +57,8 @@ def init_db() -> None:
                 return_leg2_steps           TEXT,
                 return_leg2_arr_stop        TEXT,
                 captured_at                 TEXT NOT NULL DEFAULT (datetime('now')),
-                UNIQUE(route_id)
+                source                      TEXT NOT NULL DEFAULT 'maps',
+                UNIQUE(route_id, source)
             );
 
             CREATE TABLE IF NOT EXISTS scan_results (
@@ -68,7 +72,8 @@ def init_db() -> None:
                 steps               TEXT,
                 disruption_reasons  TEXT,
                 scanned_at          TEXT NOT NULL DEFAULT (datetime('now')),
-                UNIQUE(route_id, target_date, direction, leg)
+                source              TEXT NOT NULL DEFAULT 'maps',
+                UNIQUE(route_id, target_date, direction, leg, source)
             );
 
             CREATE TABLE IF NOT EXISTS api_usage_log (
