@@ -74,25 +74,28 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
 
         # Holding fix (issue #16, superseded by #17's real dual-source rollup): a
         # scan_source='both' route now has both source='maps' and source='gtfs' rows in both
-        # tables. Without this filter, both tables would return duplicate/mismatched rows
-        # (bogus duration deltas, doubled disrupted_day_count) since this function is still
-        # single-source-unaware.
+        # tables, and this function is still single-source-unaware, so an unfiltered read would
+        # return duplicate/mismatched rows (bogus duration deltas, doubled disrupted_day_count).
+        # Filtering to a fixed 'maps' would instead blank out a scan_source='gtfs' route
+        # entirely (it has no 'maps' rows at all) — so the display source must follow the
+        # route's own scan_source, not be hardcoded.
+        display_source = "gtfs" if route["scan_source"] == "gtfs" else "maps"
         baseline = db.execute(
             """SELECT outbound_leg1_duration_s, outbound_leg2_duration_s,
                       return_leg1_duration_s, return_leg2_duration_s
-               FROM baselines WHERE route_id = ? AND source = 'maps'""",
-            (route["id"],),
+               FROM baselines WHERE route_id = ? AND source = ?""",
+            (route["id"], display_source),
         ).fetchone()
         baseline_dict = dict(baseline) if baseline else {}
 
         scan_rows = db.execute(
             """SELECT target_date, direction, leg, status, duration_s, steps, disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
-               AND source = 'maps'
+               AND source = ?
                AND target_date >= date('now')
                AND target_date <= date('now', ? || ' days')
                ORDER BY target_date, direction, leg""",
-            (route["id"], route["lookahead_weeks"] * 7),
+            (route["id"], display_source, route["lookahead_weeks"] * 7),
         ).fetchall()
 
         leg_label_map = {lbl["key"]: lbl["label"] for lbl in route_dict["leg_labels"]}
@@ -184,10 +187,13 @@ def get_route_report(route_id: int):
     # Holding fix (issue #16, superseded by #17's real dual-source rollup) — same reasoning as
     # _build_route_data above: a scan_source='both' route now has both source='maps' and
     # source='gtfs' rows here, and this endpoint doesn't expose `source` in its response, so an
-    # unfiltered read would silently interleave both sources' rows for the same leg/date.
+    # unfiltered read would silently interleave both sources' rows for the same leg/date. A
+    # fixed 'maps' filter would instead blank out a scan_source='gtfs' route entirely, so the
+    # display source follows the route's own scan_source.
+    display_source = "gtfs" if route["scan_source"] == "gtfs" else "maps"
     scan_rows = db.execute(
-        "SELECT * FROM scan_results WHERE route_id = ? AND source = 'maps' ORDER BY target_date, direction, leg",
-        (route_id,),
+        "SELECT * FROM scan_results WHERE route_id = ? AND source = ? ORDER BY target_date, direction, leg",
+        (route_id, display_source),
     ).fetchall()
     db.close()
 

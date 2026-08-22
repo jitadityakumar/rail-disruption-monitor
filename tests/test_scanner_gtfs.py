@@ -476,3 +476,32 @@ def test_reports_holding_fix_filters_maps_source(db, monkeypatch):
     results = r2.json()["results"]
     keys = [(res["target_date"], res["direction"], res["leg"]) for res in results]
     assert len(keys) == len(set(keys))
+
+
+# 21. reports.py holding fix must not blank out a scan_source='gtfs'-only route (found via
+# manual smoke test against the real GTFS sibling — a fixed 'maps' filter left such a route
+# with disruptions detected but zero visibility in /api/reports).
+def test_reports_holding_fix_shows_gtfs_only_route(db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers import reports as reports_router
+
+    route_id = insert_route(db, scan_source="gtfs")
+    insert_gtfs_baseline(db, route_id, trip_count_by_weekday={str(TODAY_WD): 10})
+    _use_single_gtfs_scan_day(db, route_id)
+
+    _stub_gtfs_journeys(monkeypatch, gtfs_api.GtfsResult(ok=True, journeys=[]))
+    _stub_gtfs_direct_trips(monkeypatch, gtfs_api.GtfsResult(ok=True, journeys=[]))
+    scanner.scan_route(route_id)  # writes DISRUPTED gtfs rows, no maps rows exist at all
+
+    app = FastAPI()
+    app.include_router(reports_router.router)
+    client = TestClient(app)
+
+    r = client.get("/api/reports")
+    route_data = next(x for x in r.json() if x["id"] == route_id)
+    assert route_data["disrupted_day_count"] >= 1
+    assert route_data["per_day"]
+
+    r2 = client.get(f"/api/reports/{route_id}")
+    assert r2.json()["results"]
