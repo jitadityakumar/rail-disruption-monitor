@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from database import get_db
+from rollup import day_rollup_status, leg_rollup_status
 from shared_templates import templates
 from stations import get_station_name, route_display_name, route_leg_labels
 
@@ -48,6 +49,21 @@ def _derive_issues(
     return issues
 
 
+def _leg_status(row) -> str | None:
+    return row["status"] if row is not None else None
+
+
+def _display_status(rollup: str) -> str:
+    """Legacy single-value NORMAL/DISRUPTED/UNKNOWN status, derived from the rollup, kept
+    for backward compatibility with UI code that filters on leg["status"] (e.g. the
+    disruption list / day-detail modal). Exact rollup-aware rendering is issue #18's job."""
+    if rollup in ("disrupted", "agree_disrupted", "disagree_gtfs_flags", "disagree_maps_flags"):
+        return "DISRUPTED"
+    if rollup in ("clear", "agree_clear", "clear_gtfs_only"):
+        return "NORMAL"
+    return "UNKNOWN"
+
+
 def _build_route_data(db, kiosk_only: bool = False) -> list:
     where = "WHERE kiosk_visible = 1" if kiosk_only else ""
     routes = db.execute(f"SELECT * FROM routes {where} ORDER BY created_at").fetchall()
@@ -72,84 +88,125 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
             else None
         )
 
-        # Holding fix (issue #16, superseded by #17's real dual-source rollup): a
-        # scan_source='both' route now has both source='maps' and source='gtfs' rows in both
-        # tables, and this function is still single-source-unaware, so an unfiltered read would
-        # return duplicate/mismatched rows (bogus duration deltas, doubled disrupted_day_count).
-        # Filtering to a fixed 'maps' would instead blank out a scan_source='gtfs' route
-        # entirely (it has no 'maps' rows at all) — so the display source must follow the
-        # route's own scan_source, not be hardcoded.
-        display_source = "gtfs" if route["scan_source"] == "gtfs" else "maps"
+        maps_expected = route["scan_source"] in ("maps", "both")
+        gtfs_expected = route["scan_source"] in ("gtfs", "both")
+        route_dict["maps_expected"] = maps_expected
+        route_dict["gtfs_expected"] = gtfs_expected
+
+        gtfs_scan_days = (
+            [int(x) for x in route["gtfs_scan_days"].split(",")]
+            if route["gtfs_scan_days"]
+            else route_dict["scan_days"]
+        )
+        route_dict["effective_scan_days"] = sorted(set(route_dict["scan_days"]) | set(gtfs_scan_days))
+
+        gtfs_lookahead_weeks = (
+            route["gtfs_lookahead_weeks"] if route["gtfs_lookahead_weeks"] is not None else route["lookahead_weeks"]
+        )
+        window_weeks = max(route["lookahead_weeks"], gtfs_lookahead_weeks)
+
+        # Baseline is pinned to the Maps source specifically — this is what
+        # `_derive_issues`'s duration-delta comparison expects. A GTFS-side duration
+        # comparison isn't needed for the missing-trip/reduced-service signal itself.
         baseline = db.execute(
             """SELECT outbound_leg1_duration_s, outbound_leg2_duration_s,
                       return_leg1_duration_s, return_leg2_duration_s
-               FROM baselines WHERE route_id = ? AND source = ?""",
-            (route["id"], display_source),
+               FROM baselines WHERE route_id = ? AND source = 'maps'""",
+            (route["id"],),
         ).fetchone()
         baseline_dict = dict(baseline) if baseline else {}
 
         scan_rows = db.execute(
-            """SELECT target_date, direction, leg, status, duration_s, steps, disruption_reasons, scanned_at
+            """SELECT target_date, direction, leg, status, duration_s, steps, disruption_reasons,
+                      scanned_at, source
                FROM scan_results WHERE route_id = ?
-               AND source = ?
                AND target_date >= date('now')
                AND target_date <= date('now', ? || ' days')
                ORDER BY target_date, direction, leg""",
-            (route["id"], display_source, route["lookahead_weeks"] * 7),
+            (route["id"], window_weeks * 7),
         ).fetchall()
 
         leg_label_map = {lbl["key"]: lbl["label"] for lbl in route_dict["leg_labels"]}
+
+        # Group raw rows by (target_date, leg_key, source) so the Maps and GTFS rows for the
+        # same leg/date don't overwrite each other.
+        grouped: dict[str, dict[str, dict]] = defaultdict(dict)
+        for r in scan_rows:
+            key = f"{r['direction']}_{r['leg']}"
+            grouped[r["target_date"]].setdefault(key, {})[r["source"]] = r
+
         per_day: dict[str, dict] = {}
         by_date: dict[str, dict] = defaultdict(dict)
 
-        for r in scan_rows:
-            key = f"{r['direction']}_{r['leg']}"
-            reasons = json.loads(r["disruption_reasons"] or "[]")
-            steps = json.loads(r["steps"] or "[]")
+        for target_date, legs_by_key in grouped.items():
+            per_day[target_date] = {"status": None, "legs": []}
+            for key, by_source in legs_by_key.items():
+                maps_row = by_source.get("maps")
+                gtfs_row = by_source.get("gtfs")
+                maps_status = _leg_status(maps_row)
+                gtfs_status = _leg_status(gtfs_row)
+                rollup = leg_rollup_status(maps_status, gtfs_status, maps_expected)
 
-            bl_key = f"{r['direction']}_leg{r['leg']}_duration_s"
-            bl_dur = baseline_dict.get(bl_key)
-            issues = _derive_issues(reasons, steps, bl_dur, r["duration_s"])
+                reasons = []
+                steps = []
+                for row in (maps_row, gtfs_row):
+                    if row is None:
+                        continue
+                    reasons.extend(json.loads(row["disruption_reasons"] or "[]"))
+                    steps.extend(json.loads(row["steps"] or "[]"))
 
-            by_date[r["target_date"]][key] = {
-                "status": r["status"],
-                "duration_s": r["duration_s"],
-                "disruption_reasons": reasons,
-                "scanned_at": r["scanned_at"],
-            }
+                duration_s = maps_row["duration_s"] if maps_row is not None else (
+                    gtfs_row["duration_s"] if gtfs_row is not None else None
+                )
+                bl_key = f"{key.split('_')[0]}_leg{key.split('_')[1]}_duration_s"
+                bl_dur = baseline_dict.get(bl_key)
+                issues = _derive_issues(reasons, steps, bl_dur, duration_s)
 
-            if r["target_date"] not in per_day:
-                per_day[r["target_date"]] = {"status": None, "legs": []}
-            per_day[r["target_date"]]["legs"].append({
-                "key": key,
-                "label": leg_label_map.get(key, key),
-                "status": r["status"],
-                "duration_s": r["duration_s"],
-                "issues": issues,
-                "reasons": reasons,
-            })
+                by_date[target_date][key] = {
+                    "maps": {
+                        "status": maps_status,
+                        "duration_s": maps_row["duration_s"] if maps_row is not None else None,
+                        "disruption_reasons": json.loads(maps_row["disruption_reasons"] or "[]") if maps_row is not None else [],
+                        "scanned_at": maps_row["scanned_at"] if maps_row is not None else None,
+                    } if maps_row is not None else None,
+                    "gtfs": {
+                        "status": gtfs_status,
+                        "duration_s": gtfs_row["duration_s"] if gtfs_row is not None else None,
+                        "disruption_reasons": json.loads(gtfs_row["disruption_reasons"] or "[]") if gtfs_row is not None else [],
+                        "scanned_at": gtfs_row["scanned_at"] if gtfs_row is not None else None,
+                    } if gtfs_row is not None else None,
+                }
+
+                per_day[target_date]["legs"].append({
+                    "key": key,
+                    "label": leg_label_map.get(key, key),
+                    "status": _display_status(rollup),
+                    "rollup": rollup,
+                    "maps_status": maps_status,
+                    "gtfs_status": gtfs_status,
+                    "duration_s": duration_s,
+                    "issues": issues,
+                    "reasons": reasons,
+                })
 
         for day in per_day.values():
-            statuses = {leg["status"] for leg in day["legs"]}
-            if "DISRUPTED" in statuses:
-                day["status"] = "disrupted"
-            elif statuses == {"NORMAL"}:
-                day["status"] = "clear"
-            else:
-                day["status"] = "unknown"
+            day["status"] = day_rollup_status([leg["rollup"] for leg in day["legs"]])
 
         route_dict["disrupted_day_count"] = sum(
             1 for d in per_day.values() if d["status"] == "disrupted"
         )
+        route_dict["disagreement_day_count"] = sum(
+            1 for d in per_day.values() if d["status"] == "disagree"
+        )
 
-        scan_days_set = set(route_dict["scan_days"])
-        lookahead_end = today + timedelta(days=route["lookahead_weeks"] * 7)
+        scan_days_set = set(route_dict["effective_scan_days"])
+        lookahead_end = today + timedelta(days=window_weeks * 7)
         first_clear = None
         cur = today + timedelta(days=1)
         while cur <= lookahead_end:
             if cur.weekday() in scan_days_set:
                 ds = cur.isoformat()
-                if ds in per_day and per_day[ds]["status"] == "clear":
+                if ds in per_day and per_day[ds]["status"] in ("clear", "clear_gtfs_only"):
                     first_clear = ds
                     break
             cur += timedelta(days=1)
@@ -184,16 +241,12 @@ def get_route_report(route_id: int):
         db.close()
         raise HTTPException(status_code=404, detail="Route not found")
 
-    # Holding fix (issue #16, superseded by #17's real dual-source rollup) — same reasoning as
-    # _build_route_data above: a scan_source='both' route now has both source='maps' and
-    # source='gtfs' rows here, and this endpoint doesn't expose `source` in its response, so an
-    # unfiltered read would silently interleave both sources' rows for the same leg/date. A
-    # fixed 'maps' filter would instead blank out a scan_source='gtfs' route entirely, so the
-    # display source follows the route's own scan_source.
-    display_source = "gtfs" if route["scan_source"] == "gtfs" else "maps"
+    # #17: both sources' rows are returned (not filtered to one), each tagged with its own
+    # `source` and a `key` that includes it — avoids the Maps/GTFS key collision from #16's
+    # holding fix, and gives #18's modal both sources' raw data for the same leg/date.
     scan_rows = db.execute(
-        "SELECT * FROM scan_results WHERE route_id = ? AND source = ? ORDER BY target_date, direction, leg",
-        (route_id, display_source),
+        "SELECT * FROM scan_results WHERE route_id = ? ORDER BY target_date, direction, leg, source",
+        (route_id,),
     ).fetchall()
     db.close()
 
@@ -203,7 +256,8 @@ def get_route_report(route_id: int):
             "target_date": r["target_date"],
             "direction": r["direction"],
             "leg": r["leg"],
-            "key": f"{r['direction']}_{r['leg']}",
+            "source": r["source"],
+            "key": f"{r['direction']}_{r['leg']}_{r['source']}",
             "status": r["status"],
             "duration_s": r["duration_s"],
             "steps": json.loads(r["steps"] or "[]"),
