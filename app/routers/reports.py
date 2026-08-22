@@ -72,10 +72,15 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
             else None
         )
 
+        # Holding fix (issue #16, superseded by #17's real dual-source rollup): a
+        # scan_source='both' route now has both source='maps' and source='gtfs' rows in both
+        # tables. Without this filter, both tables would return duplicate/mismatched rows
+        # (bogus duration deltas, doubled disrupted_day_count) since this function is still
+        # single-source-unaware.
         baseline = db.execute(
             """SELECT outbound_leg1_duration_s, outbound_leg2_duration_s,
                       return_leg1_duration_s, return_leg2_duration_s
-               FROM baselines WHERE route_id = ?""",
+               FROM baselines WHERE route_id = ? AND source = 'maps'""",
             (route["id"],),
         ).fetchone()
         baseline_dict = dict(baseline) if baseline else {}
@@ -83,6 +88,7 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
         scan_rows = db.execute(
             """SELECT target_date, direction, leg, status, duration_s, steps, disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
+               AND source = 'maps'
                AND target_date >= date('now')
                AND target_date <= date('now', ? || ' days')
                ORDER BY target_date, direction, leg""",
@@ -175,8 +181,12 @@ def get_route_report(route_id: int):
         db.close()
         raise HTTPException(status_code=404, detail="Route not found")
 
+    # Holding fix (issue #16, superseded by #17's real dual-source rollup) — same reasoning as
+    # _build_route_data above: a scan_source='both' route now has both source='maps' and
+    # source='gtfs' rows here, and this endpoint doesn't expose `source` in its response, so an
+    # unfiltered read would silently interleave both sources' rows for the same leg/date.
     scan_rows = db.execute(
-        "SELECT * FROM scan_results WHERE route_id = ? ORDER BY target_date, direction, leg",
+        "SELECT * FROM scan_results WHERE route_id = ? AND source = 'maps' ORDER BY target_date, direction, leg",
         (route_id,),
     ).fetchall()
     db.close()
