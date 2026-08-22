@@ -115,3 +115,76 @@ def fetch_gtfs_journeys(
         return GtfsResult(ok=False, error="missing_journeys_key", elapsed_ms=elapsed_ms)
 
     return GtfsResult(ok=True, journeys=body["journeys"], error=None, elapsed_ms=elapsed_ms)
+
+
+def fetch_gtfs_direct_trips(
+    origin_crs: str,
+    dest_crs: str,
+    date: str,
+    time_: str,
+    window_minutes: int = 60,
+) -> GtfsResult:
+    """Like fetch_gtfs_journeys but calls /api/direct?include_dominated=true — returns every
+    scheduled direct trip in the window, undominated, for counting service level. Use this for
+    the reduced-service signal; use fetch_gtfs_journeys (kind-tagged, dominance-filtered) for
+    the "is there a direct trip at all" existence check."""
+    origin_crs = origin_crs.strip().upper()
+    dest_crs = dest_crs.strip().upper()
+    window_minutes = min(window_minutes, _MAX_WINDOW_MINUTES)
+
+    params = urllib.parse.urlencode({
+        "from": origin_crs,
+        "to": dest_crs,
+        "date": date,
+        "time": time_,
+        "window_minutes": window_minutes,
+        "include_dominated": "true",
+    })
+    url = f"{_BASE_URL}/api/direct?{params}"
+    req = urllib.request.Request(url, method="GET")
+
+    start = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        logger.warning(
+            "GTFS API HTTP %s for %s->%s on %s (likely bad/unknown CRS)",
+            e.code, origin_crs, dest_crs, date,
+        )
+        return GtfsResult(ok=False, error=f"http_{e.code}", elapsed_ms=elapsed_ms)
+    except OSError as e:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        logger.warning(
+            "GTFS API network/timeout error for %s->%s on %s: %s",
+            origin_crs, dest_crs, date, e,
+        )
+        return GtfsResult(ok=False, error="network_error", elapsed_ms=elapsed_ms)
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    try:
+        body = json.loads(raw)
+    except ValueError as e:
+        logger.warning(
+            "GTFS API returned malformed/non-JSON body for %s->%s on %s: %s",
+            origin_crs, dest_crs, date, e,
+        )
+        return GtfsResult(ok=False, error="malformed_response", elapsed_ms=elapsed_ms)
+
+    if not isinstance(body, dict):
+        logger.warning(
+            "GTFS API returned non-object JSON body for %s->%s on %s",
+            origin_crs, dest_crs, date,
+        )
+        return GtfsResult(ok=False, error="malformed_response", elapsed_ms=elapsed_ms)
+
+    if "trips" not in body:
+        logger.warning(
+            "GTFS API /api/direct response missing 'trips' key for %s->%s on %s",
+            origin_crs, dest_crs, date,
+        )
+        return GtfsResult(ok=False, error="missing_trips_key", elapsed_ms=elapsed_ms)
+
+    return GtfsResult(ok=True, journeys=body["trips"], error=None, elapsed_ms=elapsed_ms)

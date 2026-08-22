@@ -5,8 +5,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from database import get_db
-from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
-from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
+from models import BaselineConfirm, BaselineTrigger, GtfsBaselineConfirm, RouteCreate, RouteUpdate
+from scanner import (
+    confirm_baseline,
+    confirm_gtfs_baseline,
+    fetch_baseline_options,
+    fetch_gtfs_baseline_options,
+    scan_all_routes,
+    scan_route,
+)
 from scheduler import get_next_run, get_schedule_label
 from shared_templates import templates
 from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
@@ -26,17 +33,22 @@ def get_admin_page(request: Request):
 def list_routes():
     db = get_db()
     rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
-    baseline_route_ids = {
-        r["route_id"]
-        for r in db.execute("SELECT route_id FROM baselines").fetchall()
-    }
+    maps_baseline_route_ids = set()
+    gtfs_baseline_route_ids = set()
+    for r in db.execute("SELECT route_id, source FROM baselines").fetchall():
+        if r["source"] == "gtfs":
+            gtfs_baseline_route_ids.add(r["route_id"])
+        else:
+            maps_baseline_route_ids.add(r["route_id"])
     db.close()
     result = []
     for row in rows:
         d = dict(row)
         d["scan_days"] = [int(x) for x in d["scan_days"].split(",")]
         d["kiosk_visible"] = bool(d["kiosk_visible"])
-        d["has_baseline"] = row["id"] in baseline_route_ids
+        d["has_maps_baseline"] = row["id"] in maps_baseline_route_ids
+        d["has_gtfs_baseline"] = row["id"] in gtfs_baseline_route_ids
+        d["has_baseline"] = d["has_maps_baseline"]  # back-compat alias for templates
         d["has_change"] = bool(row["change_crs"])
         d["leg_labels"] = route_leg_labels(row)
         d["display_name"] = route_display_name(row["origin_crs"], row["destination_crs"], row["change_crs"])
@@ -70,8 +82,9 @@ def create_route(body: RouteCreate):
 
     cur = db.execute(
         """INSERT INTO routes
-           (name, origin_crs, change_crs, destination_crs, scan_days, lookahead_weeks, threshold_pct, kiosk_visible)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (name, origin_crs, change_crs, destination_crs, scan_days, lookahead_weeks, threshold_pct, kiosk_visible,
+            scan_source, gtfs_lookahead_weeks, gtfs_scan_days)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             name,
             body.origin_crs,
@@ -81,6 +94,9 @@ def create_route(body: RouteCreate):
             body.lookahead_weeks,
             body.threshold_pct,
             int(body.kiosk_visible),
+            body.scan_source,
+            body.gtfs_lookahead_weeks,
+            ",".join(str(d) for d in body.gtfs_scan_days) if body.gtfs_scan_days is not None else None,
         ),
     )
     db.commit()
@@ -124,6 +140,15 @@ def update_route(route_id: int, body: RouteUpdate):
                 )
         fields.append("kiosk_visible = ?")
         params.append(int(body.kiosk_visible))
+    if body.scan_source is not None:
+        fields.append("scan_source = ?")
+        params.append(body.scan_source)
+    if body.gtfs_lookahead_weeks is not None:
+        fields.append("gtfs_lookahead_weeks = ?")
+        params.append(body.gtfs_lookahead_weeks)
+    if body.gtfs_scan_days is not None:
+        fields.append("gtfs_scan_days = ?")
+        params.append(",".join(str(d) for d in body.gtfs_scan_days))
 
     if fields:
         params.append(route_id)
@@ -178,10 +203,50 @@ def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/routes/{route_id}/baseline/gtfs/options")
+def gtfs_baseline_options(route_id: int, body: BaselineTrigger):
+    try:
+        options = fetch_gtfs_baseline_options(route_id, body.baseline_date)
+        return {"ok": True, "options": options}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/routes/{route_id}/baseline/gtfs/confirm")
+def confirm_gtfs_baseline_endpoint(route_id: int, body: GtfsBaselineConfirm):
+    def _to_dict(sel):
+        if sel is None:
+            return None
+        return {
+            "duration_s": sel.duration_s,
+            "departure_time": sel.departure_time,
+            "dep_stop": sel.dep_stop,
+            "arr_stop": sel.arr_stop,
+            "intermediate_stops": sel.intermediate_stops,
+        }
+
+    try:
+        confirm_gtfs_baseline(route_id, body.baseline_date, {
+            "outbound_leg1": _to_dict(body.outbound_leg1),
+            "outbound_leg2": _to_dict(body.outbound_leg2),
+            "return_leg1":   _to_dict(body.return_leg1),
+            "return_leg2":   _to_dict(body.return_leg2),
+        })
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/routes/{route_id}/baseline")
-def get_baseline(route_id: int):
+def get_baseline(route_id: int, source: str = "maps"):
     db = get_db()
-    row = db.execute("SELECT * FROM baselines WHERE route_id = ?", (route_id,)).fetchone()
+    row = db.execute(
+        "SELECT * FROM baselines WHERE route_id = ? AND source = ?", (route_id, source)
+    ).fetchone()
     db.close()
     if not row:
         raise HTTPException(status_code=404, detail="No baseline for this route")
@@ -189,6 +254,10 @@ def get_baseline(route_id: int):
     def _leg(dur_col, steps_col, dep_col, arr_col):
         if not row[arr_col]:
             return None
+        # For source='maps', `steps` is a JSON list of transit steps. For source='gtfs' it's a
+        # repurposed JSON object ({"trip_count_by_weekday": ..., "departure_time": ...,
+        # "intermediate_stops": ...}) — passed through as-is, no branching needed here since
+        # this is read-only passthrough for the (not-yet-built) admin UI to consume.
         return {
             "duration_s": row[dur_col],
             "dep_stop": row[dep_col],

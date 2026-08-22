@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, field_validator
 
 
@@ -20,6 +20,9 @@ class RouteCreate(BaseModel):
     lookahead_weeks: int = 4
     threshold_pct: int = 20
     kiosk_visible: bool = True
+    scan_source: Literal["maps", "gtfs", "both"] = "maps"
+    gtfs_lookahead_weeks: Optional[int] = None
+    gtfs_scan_days: Optional[list[int]] = None
 
     @field_validator("origin_crs", "destination_crs")
     @classmethod
@@ -50,6 +53,20 @@ class RouteCreate(BaseModel):
             raise ValueError("threshold_pct must be greater than 0")
         return v
 
+    @field_validator("gtfs_lookahead_weeks")
+    @classmethod
+    def validate_gtfs_lookahead(cls, v):
+        if v is not None and v < 1:
+            raise ValueError("gtfs_lookahead_weeks must be at least 1")
+        return v
+
+    @field_validator("gtfs_scan_days")
+    @classmethod
+    def validate_gtfs_scan_days(cls, v):
+        if v is None:
+            return v
+        return _validate_scan_days(v)
+
 
 class RouteUpdate(BaseModel):
     name: Optional[str] = None
@@ -57,6 +74,9 @@ class RouteUpdate(BaseModel):
     lookahead_weeks: Optional[int] = None
     threshold_pct: Optional[int] = None
     kiosk_visible: Optional[bool] = None
+    scan_source: Optional[Literal["maps", "gtfs", "both"]] = None
+    gtfs_lookahead_weeks: Optional[int] = None
+    gtfs_scan_days: Optional[list[int]] = None
 
     @field_validator("scan_days")
     @classmethod
@@ -79,6 +99,20 @@ class RouteUpdate(BaseModel):
             raise ValueError("threshold_pct must be greater than 0")
         return v
 
+    @field_validator("gtfs_lookahead_weeks")
+    @classmethod
+    def validate_gtfs_lookahead(cls, v):
+        if v is not None and v < 1:
+            raise ValueError("gtfs_lookahead_weeks must be at least 1")
+        return v
+
+    @field_validator("gtfs_scan_days")
+    @classmethod
+    def validate_gtfs_scan_days(cls, v):
+        if v is None:
+            return v
+        return _validate_scan_days(v)
+
 
 class BaselineTrigger(BaseModel):
     baseline_date: str
@@ -97,3 +131,19 @@ class BaselineConfirm(BaseModel):
     outbound_leg2: Optional[LegSelection] = None
     return_leg1: LegSelection
     return_leg2: Optional[LegSelection] = None
+
+
+class GtfsLegSelection(BaseModel):
+    duration_s: Optional[int] = None
+    departure_time: str
+    dep_stop: str
+    arr_stop: str
+    intermediate_stops: list = []
+
+
+class GtfsBaselineConfirm(BaseModel):
+    baseline_date: str
+    outbound_leg1: GtfsLegSelection
+    outbound_leg2: Optional[GtfsLegSelection] = None
+    return_leg1: GtfsLegSelection
+    return_leg2: Optional[GtfsLegSelection] = None
