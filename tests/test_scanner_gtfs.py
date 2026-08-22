@@ -441,7 +441,10 @@ def test_route_create_update_accept_gtfs_fields(db):
     assert row["scan_source"] == "gtfs"
 
 
-# 20. reports.py holding fix: 'both' route doesn't duplicate legs / double-count
+# 20. reports.py: 'both' route's /api/reports doesn't duplicate legs / double-count, and
+# /api/reports/{id} exposes both sources' rows distinctly (superseded by #17 — the endpoint
+# now intentionally returns one row per (date, direction, leg, source) rather than filtering
+# to a single source, so #18's modal can show both sources side by side).
 def test_reports_holding_fix_filters_maps_source(db, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -470,12 +473,15 @@ def test_reports_holding_fix_filters_maps_source(db, monkeypatch):
     for day in route_data["per_day"].values():
         assert len(day["legs"]) == len(set(leg["key"] for leg in day["legs"]))
 
-    # Same holding fix must apply to the per-route detail endpoint too, not just the list one.
+    # #17: /api/reports/{id} now exposes both sources' rows for the same leg/date, distinguished
+    # by an explicit `source` field and a `key` that includes it — no collision, by design.
     r2 = client.get(f"/api/reports/{route_id}")
     assert r2.status_code == 200
     results = r2.json()["results"]
-    keys = [(res["target_date"], res["direction"], res["leg"]) for res in results]
+    keys = [(res["target_date"], res["direction"], res["leg"], res["source"]) for res in results]
     assert len(keys) == len(set(keys))
+    sources_seen = {res["source"] for res in results}
+    assert sources_seen == {"maps", "gtfs"}
 
 
 # 21. reports.py holding fix must not blank out a scan_source='gtfs'-only route (found via

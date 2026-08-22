@@ -60,25 +60,28 @@ function formatDateShort(iso) {
 }
 
 /* ── Build unified day map from all routes ── */
+// Day-tier precedence, highest first — mirrors app/rollup.py's day_rollup_status, extended
+// with the caller-decided 'future' tier for a route that hasn't been scanned for this date yet.
+const DAY_TIER_ORDER = ['disagree', 'disrupted', 'clear_gtfs_only', 'clear', 'unknown', 'future'];
+
 function buildDayMap(routes) {
-  const allScanDays = new Set(routes.flatMap(r => r.scan_days));
+  const allScanDays = new Set(routes.flatMap(r => r.effective_scan_days || r.scan_days));
   const allDates = new Set(routes.flatMap(r => Object.keys(r.per_day || {})));
   const dayMap = {};
   for (const iso of allDates) {
     const dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7; // Mon=0
-    let anyDisrupted = false;
-    let allScanned = true;
+    let worstTierIdx = Infinity; // lower index = more severe, per DAY_TIER_ORDER
     const routeDetails = [];
     for (const route of routes) {
-      if (!route.scan_days.includes(dow)) continue;
+      if (!(route.effective_scan_days || route.scan_days).includes(dow)) continue;
       const dayData = (route.per_day || {})[iso];
-      if (!dayData) { allScanned = false; continue; }
-      if (dayData.status === 'disrupted') anyDisrupted = true;
-      routeDetails.push({ route, dayData });
+      const tier = dayData ? dayData.status : 'future';
+      const idx = DAY_TIER_ORDER.indexOf(tier);
+      if (idx !== -1 && idx < worstTierIdx) worstTierIdx = idx;
+      if (dayData) routeDetails.push({ route, dayData });
     }
     if (!routeDetails.length) continue;
-    const status = anyDisrupted ? 'disrupted' : allScanned ? 'clear' : 'future';
-    dayMap[iso] = { status, routeDetails };
+    dayMap[iso] = { status: DAY_TIER_ORDER[worstTierIdx], routeDetails };
   }
   return { dayMap, allScanDays };
 }
@@ -201,7 +204,10 @@ function renderDisruptionList(routes) {
   const entries = [];
   for (const route of routes) {
     for (const [iso, dayData] of Object.entries(route.per_day || {})) {
-      if (dayData.status !== 'disrupted') continue;
+      // Filter on leg-level status (backward-compat DISRUPTED), not the day rollup tier —
+      // a 'disagree' day still has a leg whose backward-compat status is DISRUPTED and
+      // should still surface here (see #17: day.status is now a richer tier set).
+      if (!(dayData.legs || []).some(l => l.status === 'DISRUPTED')) continue;
       entries.push({ iso, route, dayData });
     }
   }
