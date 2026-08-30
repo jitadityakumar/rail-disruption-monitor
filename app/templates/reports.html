@@ -65,6 +65,29 @@ function formatDateShort(iso) {
 // date yet.
 const DAY_TIER_ORDER = ['disrupted', 'clear', 'unknown', 'future'];
 
+/* ── Per-route colours ── */
+const CLEAR_HEX = '#2ec76a';
+const UNKNOWN_HEX = '#4b4b58';
+const KIOSK_HEX = { blue: '#3b82f6', yellow: '#eab308', green: '#16a34a', purple: '#a855f7', orange: '#f97316', teal: '#14b8a6' };
+function routeColorHex(route) { return KIOSK_HEX[route.kiosk_color] || KIOSK_HEX.blue; }
+
+/* Repeating diagonal stripe, one band per monitored route: green where that route is clear
+   that day, the route's own colour where it's disrupted -- the stripe itself names which
+   route(s) are down, so no separate legend is needed. */
+function computeCellBackground(routeDetails) {
+  const colors = routeDetails.map(({ route, dayData }) => {
+    if (dayData.status === 'clear') return CLEAR_HEX;
+    if (dayData.status === 'disrupted') return routeColorHex(route);
+    return UNKNOWN_HEX;
+  });
+  const allClear = colors.every(c => c === CLEAR_HEX);
+  if (allClear) return { background: CLEAR_HEX, allClear: true };
+
+  const band = 14;
+  const stops = colors.map((c, i) => `${c} ${i * band}px ${(i + 1) * band}px`).join(', ');
+  return { background: `repeating-linear-gradient(135deg, ${stops})`, allClear: false };
+}
+
 function buildDayMap(routes) {
   const allDates = new Set(routes.flatMap(r => Object.keys(r.per_day || {})));
   const dayMap = {};
@@ -136,28 +159,14 @@ function renderCalendar(routes, dayMap) {
 
       const cell = document.createElement('div');
 
-      // Identity-stripe cells (issue #24): with exactly 2 fixed kiosk routes, a mixed day
-      // (one route clear, the other disrupted) renders as a diagonal stripe of green + the
-      // affected route's own kiosk_color, instead of a generic "mixed" tier — the stripe
-      // colour itself names which route is down.
-      let classes;
       if (!entry) {
-        classes = ['reports-cal-cell--future'];
+        cell.className = `reports-cal-cell reports-cal-cell--future${isToday ? ' reports-cal-cell--today' : ''}`;
+        cell.textContent = day;
       } else {
-        const statuses = entry.routeDetails.map(({ route, dayData }) => ({ route, status: dayData.status }));
-        const allClear = statuses.length > 0 && statuses.every(s => s.status === 'clear');
-        const allDisrupted = statuses.length > 0 && statuses.every(s => s.status === 'disrupted');
-        const disruptedOne = statuses.find(s => s.status === 'disrupted');
-        if (allClear) classes = ['reports-cal-cell--clear'];
-        else if (allDisrupted) classes = ['reports-cal-cell--disrupted'];
-        else if (disruptedOne) classes = ['reports-cal-cell--mixed', `kiosk-color--${disruptedOne.route.kiosk_color || 'blue'}`];
-        else classes = ['reports-cal-cell--future'];
-      }
-      cell.className = `reports-cal-cell ${classes.join(' ')}${isToday ? ' reports-cal-cell--today' : ''}`;
-      const needsCircle = classes.some(c => c === 'reports-cal-cell--clear' || c === 'reports-cal-cell--disrupted' || c === 'reports-cal-cell--mixed');
-      cell.innerHTML = needsCircle ? `<span class="reports-cal-date-circle">${day}</span>` : String(day);
-
-      if (entry) {
+        const { background, allClear } = computeCellBackground(entry.routeDetails);
+        cell.className = `reports-cal-cell ${allClear ? 'reports-cal-cell--clear' : 'reports-cal-cell--pattern'}${isToday ? ' reports-cal-cell--today' : ''}`;
+        if (!allClear) cell.style.background = background;
+        cell.innerHTML = `<span class="reports-cal-date-circle">${day}</span>`;
         cell.style.cursor = 'pointer';
         cell.addEventListener('click', () => showDayDetail(iso, entry.routeDetails));
       }
@@ -169,17 +178,7 @@ function renderCalendar(routes, dayMap) {
     frag.appendChild(block);
   }
 
-  // Legend
-  const legend = document.createElement('div');
-  legend.className = 'report-legend';
-  legend.innerHTML = `
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#2ec76a"></div><span class="report-legend-label">Clear</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#e84545"></div><span class="report-legend-label">Disrupted</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#252530;border:1px solid #32323f"></div><span class="report-legend-label">Pending scan</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch report-legend-swatch--today"></div><span class="report-legend-label">Today</span></div>`;
-
   panel.appendChild(frag);
-  panel.appendChild(legend);
 }
 
 /* ── Routes monitored (right panel) ── */
@@ -191,7 +190,7 @@ function renderRoutesList(routes) {
       : 'Never';
     return `
       <div class="rmc">
-        <div class="rmc-name">${esc(route.display_name)}</div>
+        <div class="rmc-name"><span class="rmc-dot" style="background:${routeColorHex(route)}"></span>${esc(route.display_name)}</div>
         <div class="rmc-meta">
           <span class="rmc-item"><span class="rmc-label">Departs</span>${esc(route.departure_time)}</span>
           <span class="rmc-item"><span class="rmc-label">Returns</span>${esc(route.return_time)}</span>

@@ -406,9 +406,8 @@ tr:hover td { background: var(--surface2); }
   border-radius: 5px;
   min-height: 52px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 7px;
   font-size: 13px;
   font-weight: 600;
   border: 1px solid transparent;
@@ -416,28 +415,22 @@ tr:hover td { background: var(--surface2); }
 }
 .reports-cal-cell--empty      { background: transparent; border-color: transparent; }
 .reports-cal-cell--clear      { background: #2ec76a; border-color: #26a85a; color: #fff; cursor: pointer; }
-.reports-cal-cell--clear:hover { background: #29b85f; }
-.reports-cal-cell--disrupted  { background: #e84545; border-color: #c43a3a; color: #fff; cursor: pointer; }
-.reports-cal-cell--disrupted:hover { background: #d43f3f; }
 .reports-cal-cell--future     { background: #252530; border-color: #32323f; color: var(--text-sec); }
 .reports-cal-cell--today      { box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px #f5a623; z-index: 1; }
 
-/* Kiosk identity-stripe cells (issue #24): a mixed day (one of the 2 fixed routes disrupted,
-   the other clear) renders as a diagonal stripe of green + the affected route's own permanent
-   colour, so the stripe colour itself names which route is down. */
-.reports-cal-cell--mixed { color: #fff; cursor: pointer; border-color: transparent; }
-.kiosk-color--blue.reports-cal-cell--mixed   { background: linear-gradient(135deg, #2ec76a 50%, #3b82f6 50%); }
-.kiosk-color--yellow.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #eab308 50%); }
-.kiosk-color--green.reports-cal-cell--mixed  { background: linear-gradient(135deg, #2ec76a 50%, #16a34a 50%); }
-.kiosk-color--purple.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #a855f7 50%); }
-.kiosk-color--orange.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #f97316 50%); }
-.kiosk-color--teal.reports-cal-cell--mixed   { background: linear-gradient(135deg, #2ec76a 50%, #14b8a6 50%); }
-.reports-cal-cell--mixed span.reports-cal-date-circle,
-.reports-cal-cell--clear span.reports-cal-date-circle,
-.reports-cal-cell--disrupted span.reports-cal-date-circle {
+/* Per-route identity-stripe cells (issue #24): any day where at least one monitored route is
+   disrupted renders as repeating diagonal stripes, one band per route -- green where that route
+   is clear that day, the route's own permanent colour where it's disrupted. The stripe pattern
+   itself names which route(s) are down; background is computed and set inline per-cell in JS
+   (see computeCellBackground) since the number of bands depends on how many routes exist. */
+.reports-cal-cell--pattern { color: #fff; cursor: pointer; border-color: transparent; }
+.reports-cal-cell--pattern span.reports-cal-date-circle,
+.reports-cal-cell--clear span.reports-cal-date-circle {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; border-radius: 50%;
-  background: rgba(0,0,0,0.35);
+  line-height: 1;
+  width: 26px; height: 26px; box-sizing: border-box; border-radius: 5px;
+  padding-top: 2px;
+  background: #000;
 }
 
 /* Right: disruption panel */
@@ -501,7 +494,8 @@ tr:hover td { background: var(--surface2); }
   flex-direction: column;
   gap: 6px;
 }
-.rmc-name { font-size: 13px; font-weight: 600; color: var(--text-pri); }
+.rmc-name { font-size: 13px; font-weight: 600; color: var(--text-pri); display: flex; align-items: center; gap: 8px; }
+.rmc-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .rmc-meta { display: flex; flex-wrap: wrap; gap: 12px; }
 .rmc-item { font-size: 12px; color: var(--text-sec); display: flex; gap: 5px; }
 .rmc-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; align-self: center; }
@@ -792,28 +786,6 @@ tr:hover td { background: var(--surface2); }
 .mini-cal-cell--past       .mini-cal-date      { color: #5a5a68; }
 .mini-cal-cell--past-disrupted .mini-cal-month,
 .mini-cal-cell--past-disrupted .mini-cal-date  { color: rgba(255,255,255,0.7); }
-
-/* Legend */
-.report-legend {
-  display: flex;
-  gap: 20px;
-  padding: 10px 20px;
-  border-top: 1px solid var(--border-sub);
-  background: var(--bg-nav);
-  flex-wrap: wrap;
-}
-.report-legend-item { display: flex; align-items: center; gap: 6px; }
-.report-legend-swatch {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-.report-legend-label { font-size: 13px; color: var(--text-sec); font-weight: 500; }
-.report-legend-swatch--today {
-  background: #252530;
-  box-shadow: 0 0 0 1.5px var(--bg-card), 0 0 0 3px #f5a623;
-}
 
 /* Day-detail modal */
 .day-detail-leg { margin-bottom: 1.25rem; }
