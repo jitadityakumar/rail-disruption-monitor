@@ -130,17 +130,32 @@ function renderCalendar(routes, dayMap) {
     for (let day = 1; day <= lastDay.getDate(); day++) {
       const dateObj = new Date(year, month, day);
       dateObj.setHours(0,0,0,0);
-      const iso     = toISO(dateObj);
-      const isToday = iso === todayISO;
-      const entry   = dayMap[iso];
-
-      let state;
-      if (entry) state = entry.status;   // 'clear' or 'disrupted'
-      else       state = 'future';
+      const iso      = toISO(dateObj);
+      const isToday  = iso === todayISO;
+      const entry    = dayMap[iso];
 
       const cell = document.createElement('div');
-      cell.className = `reports-cal-cell reports-cal-cell--${state}${isToday ? ' reports-cal-cell--today' : ''}`;
-      cell.textContent = day;
+
+      // Identity-stripe cells (issue #24): with exactly 2 fixed kiosk routes, a mixed day
+      // (one route clear, the other disrupted) renders as a diagonal stripe of green + the
+      // affected route's own kiosk_color, instead of a generic "mixed" tier — the stripe
+      // colour itself names which route is down.
+      let classes;
+      if (!entry) {
+        classes = ['reports-cal-cell--future'];
+      } else {
+        const statuses = entry.routeDetails.map(({ route, dayData }) => ({ route, status: dayData.status }));
+        const allClear = statuses.length > 0 && statuses.every(s => s.status === 'clear');
+        const allDisrupted = statuses.length > 0 && statuses.every(s => s.status === 'disrupted');
+        const disruptedOne = statuses.find(s => s.status === 'disrupted');
+        if (allClear) classes = ['reports-cal-cell--clear'];
+        else if (allDisrupted) classes = ['reports-cal-cell--disrupted'];
+        else if (disruptedOne) classes = ['reports-cal-cell--mixed', `kiosk-color--${disruptedOne.route.kiosk_color || 'blue'}`];
+        else classes = ['reports-cal-cell--future'];
+      }
+      cell.className = `reports-cal-cell ${classes.join(' ')}${isToday ? ' reports-cal-cell--today' : ''}`;
+      const needsCircle = classes.some(c => c === 'reports-cal-cell--clear' || c === 'reports-cal-cell--disrupted' || c === 'reports-cal-cell--mixed');
+      cell.innerHTML = needsCircle ? `<span class="reports-cal-date-circle">${day}</span>` : String(day);
 
       if (entry) {
         cell.style.cursor = 'pointer';

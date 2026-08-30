@@ -87,10 +87,10 @@ _SEARCH_MODE_SET = set(_SEARCH_MODES.split(","))
 
 def search_stop_points(query: str, limit: int = 8) -> list[dict]:
     """GET /StopPoint/Search/{query}?modes=... -> [{"id","name","modes"}, ...].
-    HUB ids are NOT filtered out of the raw match list (the admin needs to see them to
-    understand why they're rejected) -- rejection happens at RouteCreate's StopPoint model
-    validator, so the UI can show a clear error rather than silently omitting valid-looking
-    results. Never raises -- a failed/empty search just returns [].
+    HUB ids are excluded from the returned list -- they're never selectable (RouteCreate's
+    StopPoint model validator rejects them outright) and their concrete children are always
+    expanded inline instead, so surfacing the HUB entry itself would just be a dead end in the
+    UI. Never raises -- a failed/empty search just returns [].
 
     Hub children are expanded inline: found live that TfL's own /StopPoint/Search for
     "waterloo" returns ONLY the HUBWAT hub group, "London Waterloo East", and the unrelated
@@ -141,6 +141,7 @@ def search_stop_points(query: str, limit: int = 8) -> list[dict]:
             seen_ids.add(child_id)
             results.append({"id": child_id, "name": child_name, "modes": child_modes})
 
+    results = [r for r in results if not r["id"].upper().startswith("HUB")]
     return results[:limit]
 
 

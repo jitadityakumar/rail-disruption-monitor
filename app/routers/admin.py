@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 
 import tfl_client
 from database import get_db
-from display import route_display_name
+from display import route_display_name, route_via_label
 from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
 from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run, get_schedule_label
@@ -29,9 +29,12 @@ def list_routes():
     try:
         rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
         baseline_route_ids = {"outbound": set(), "return": set()}
-        for r in db.execute("SELECT route_id, direction FROM baselines").fetchall():
+        outbound_baselines = {}
+        for r in db.execute("SELECT * FROM baselines").fetchall():
             if r["direction"] in baseline_route_ids:
                 baseline_route_ids[r["direction"]].add(r["route_id"])
+            if r["direction"] == "outbound":
+                outbound_baselines[r["route_id"]] = r
     finally:
         db.close()
     result = []
@@ -42,6 +45,8 @@ def list_routes():
             row["id"] in baseline_route_ids["outbound"] and row["id"] in baseline_route_ids["return"]
         )
         d["display_name"] = route_display_name(row)
+        outbound_baseline = outbound_baselines.get(row["id"])
+        d["via_label"] = route_via_label(outbound_baseline) if outbound_baseline else None
         result.append(d)
     return result
 

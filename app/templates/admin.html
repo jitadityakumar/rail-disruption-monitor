@@ -32,7 +32,7 @@
   <h2>Scheduler</h2>
   <div class="card">
     <p class="info-msg">
-      Weekly scan runs every <strong>{{ schedule_label | default('—') }}</strong>
+      Scan runs <strong>{{ schedule_label | default('—') }}</strong>
       {% if next_scan %}<br><span style="font-size:0.8rem">Next run: {{ next_scan }}</span>{% endif %}
     </p>
     <button onclick="triggerScanAll(this)" style="margin-top:0.5rem">Run all scans now</button>
@@ -114,7 +114,11 @@
       <p class="info-msg" style="margin-bottom:0.75rem">Choose a date with normal service running. Journey options will be fetched at noon for each direction.</p>
       <div class="form-group" style="margin-bottom:1rem">
         <label>Baseline date</label>
-        <input type="date" id="baseline-date">
+        <div style="display:flex;gap:0.4rem">
+          <input type="text" id="baseline-date" placeholder="dd/mm/yyyy" maxlength="10" style="flex:1">
+          <button type="button" class="btn-ghost" onclick="openBaselineDatePicker()" title="Pick a date">📅</button>
+        </div>
+        <input type="date" id="baseline-date-native" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0">
       </div>
       <div class="error-msg" id="baseline-error"></div>
       <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
@@ -208,7 +212,7 @@ async function loadRoutes() {
   rows.forEach(r => { _routesCache[r.id] = r; });
   tbody.innerHTML = rows.map(r => `
     <tr>
-      <td><strong>${esc(r.display_name)}</strong><br><span class="info-msg">${esc(r.origin_name)} → ${esc(r.destination_name)}</span></td>
+      <td><strong>${esc(r.display_name)}</strong><br><span class="info-msg">${r.via_label ? esc(r.via_label) : 'No baseline yet'}</span></td>
       <td>${esc(r.departure_time)}</td>
       <td>${esc(r.return_time)}</td>
       <td>${r.threshold_pct}%</td>
@@ -328,12 +332,35 @@ async function submitAddRoute(btn) {
 }
 
 // ── Baseline modal ──────────────────────────────────────
+function ddMmYyyyFromIso(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function isoFromDdMmYyyy(s) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((s || '').trim());
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+function openBaselineDatePicker() {
+  const native = document.getElementById('baseline-date-native');
+  native.value = isoFromDdMmYyyy(document.getElementById('baseline-date').value) || '';
+  if (native.showPicker) native.showPicker(); else native.click();
+}
+
+document.getElementById('baseline-date-native').addEventListener('change', (e) => {
+  document.getElementById('baseline-date').value = ddMmYyyyFromIso(e.target.value);
+});
+
 function openBaselineModal(routeId) {
   _baselineRouteId = routeId;
   _baselineOptions = null;
   document.getElementById('baseline-route-name').textContent = _routesCache[routeId].name;
   document.getElementById('baseline-error').textContent = '';
   document.getElementById('baseline-date').value = '';
+  document.getElementById('baseline-date-native').value = '';
   showBaselineStep1();
   openModal('baseline-modal');
 }
@@ -357,8 +384,9 @@ function fmtStops(steps) {
 }
 
 async function fetchBaselineOptions(btn) {
-  const date = document.getElementById('baseline-date').value;
-  if (!date) { document.getElementById('baseline-error').textContent = 'Choose a date.'; return; }
+  const raw = document.getElementById('baseline-date').value;
+  const date = isoFromDdMmYyyy(raw);
+  if (!date) { document.getElementById('baseline-error').textContent = 'Enter a date as dd/mm/yyyy.'; return; }
   const err = document.getElementById('baseline-error');
   err.textContent = '';
   btn.disabled = true;
@@ -412,7 +440,7 @@ function renderBaselineOptions(options) {
 }
 
 async function confirmBaseline(btn) {
-  const date = document.getElementById('baseline-date').value;
+  const date = isoFromDdMmYyyy(document.getElementById('baseline-date').value);
   const payload = { baseline_date: date };
 
   for (const direction of Object.keys(DIRECTION_LABELS)) {
