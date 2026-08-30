@@ -17,52 +17,34 @@ def init_db() -> None:
     try:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS routes (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                name            TEXT NOT NULL,
-                origin_crs      TEXT NOT NULL,
-                change_crs      TEXT,
-                destination_crs TEXT NOT NULL,
-                scan_days       TEXT NOT NULL DEFAULT '5,6',
-                lookahead_weeks INTEGER NOT NULL DEFAULT 4,
-                threshold_pct   INTEGER NOT NULL DEFAULT 20,
-                kiosk_visible   INTEGER NOT NULL DEFAULT 1,
-                last_scanned_at TEXT,
-                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-                scan_source         TEXT NOT NULL DEFAULT 'maps',
-                gtfs_lookahead_weeks INTEGER,
-                gtfs_scan_days      TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS station_coords (
-                crs         TEXT PRIMARY KEY,
-                latitude    REAL NOT NULL,
-                longitude   REAL NOT NULL,
-                fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                TEXT NOT NULL,
+                origin_stop_id      TEXT NOT NULL,
+                origin_name         TEXT NOT NULL,
+                destination_stop_id TEXT NOT NULL,
+                destination_name    TEXT NOT NULL,
+                scan_days           TEXT NOT NULL DEFAULT '5,6',
+                lookahead_weeks     INTEGER NOT NULL DEFAULT 4,
+                threshold_pct       INTEGER NOT NULL DEFAULT 20,
+                kiosk_visible       INTEGER NOT NULL DEFAULT 1,
+                kiosk_color         TEXT NOT NULL DEFAULT 'blue',
+                last_scanned_at     TEXT,
+                created_at          TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS baselines (
-                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-                route_id                    INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-                baseline_date               TEXT NOT NULL,
-                outbound_leg1_duration_s    INTEGER,
-                outbound_leg1_steps         TEXT,
-                outbound_leg1_dep_stop      TEXT,
-                outbound_leg1_arr_stop      TEXT,
-                outbound_leg2_duration_s    INTEGER,
-                outbound_leg2_steps         TEXT,
-                outbound_leg2_dep_stop      TEXT,
-                outbound_leg2_arr_stop      TEXT,
-                return_leg1_duration_s      INTEGER,
-                return_leg1_steps           TEXT,
-                return_leg1_dep_stop        TEXT,
-                return_leg1_arr_stop        TEXT,
-                return_leg2_duration_s      INTEGER,
-                return_leg2_steps           TEXT,
-                return_leg2_dep_stop        TEXT,
-                return_leg2_arr_stop        TEXT,
-                captured_at                 TEXT NOT NULL DEFAULT (datetime('now')),
-                source                      TEXT NOT NULL DEFAULT 'maps',
-                UNIQUE(route_id, source)
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                route_id              INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
+                baseline_date         TEXT NOT NULL,
+                direction             TEXT NOT NULL,
+                origin_stop_id        TEXT NOT NULL,
+                destination_stop_id   TEXT NOT NULL,
+                duration_s            INTEGER NOT NULL,
+                interchange_stops     TEXT NOT NULL,
+                leg_modes             TEXT NOT NULL,
+                steps                 TEXT NOT NULL,
+                captured_at           TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(route_id, direction)
             );
 
             CREATE TABLE IF NOT EXISTS scan_results (
@@ -70,14 +52,15 @@ def init_db() -> None:
                 route_id            INTEGER NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
                 target_date         TEXT NOT NULL,
                 direction           TEXT NOT NULL,
-                leg                 INTEGER NOT NULL DEFAULT 1,
                 status              TEXT NOT NULL,
                 duration_s          INTEGER,
-                steps               TEXT,
+                matched_steps       TEXT,
+                alternate_steps     TEXT,
                 disruption_reasons  TEXT,
+                calls_made          INTEGER NOT NULL DEFAULT 1,
+                window_fully_walked INTEGER NOT NULL DEFAULT 1,
                 scanned_at          TEXT NOT NULL DEFAULT (datetime('now')),
-                source              TEXT NOT NULL DEFAULT 'maps',
-                UNIQUE(route_id, target_date, direction, leg, source)
+                UNIQUE(route_id, target_date, direction)
             );
 
             CREATE TABLE IF NOT EXISTS api_usage_log (

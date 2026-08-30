@@ -109,9 +109,10 @@ function formatDateShort(iso) {
 }
 
 /* ── Build unified day map from all routes ── */
-// Day-tier precedence, highest first — mirrors app/rollup.py's day_rollup_status, extended
-// with the caller-decided 'future' tier for a route that hasn't been scanned for this date yet.
-const DAY_TIER_ORDER = ['disagree', 'disrupted', 'clear_gtfs_only', 'clear', 'unknown', 'future'];
+// Day-tier precedence, highest first — mirrors the per-day status _build_route_data derives,
+// extended with the caller-decided 'future' tier for a route that hasn't been scanned for this
+// date yet.
+const DAY_TIER_ORDER = ['disrupted', 'clear', 'unknown', 'future'];
 
 function buildDayMap(routes) {
   const allScanDays = new Set(routes.flatMap(r => r.effective_scan_days || r.scan_days));
@@ -186,14 +187,30 @@ function renderCalendar(routes, dayMap, allScanDays) {
       const entry    = dayMap[iso];
       const monitored = allScanDays.has(dow);
 
-      let state;
-      if (!monitored)  state = 'unmonitored';
-      else if (entry)  state = entry.status;
-      else             state = 'future';
-
       const cell = document.createElement('div');
-      cell.className = `reports-cal-cell reports-cal-cell--${state}${isToday ? ' reports-cal-cell--today' : ''}`;
-      cell.textContent = day;
+
+      // Identity-stripe cells (issue #24): with exactly 2 fixed kiosk routes, a mixed day
+      // (one route clear, the other disrupted) renders as a diagonal stripe of green + the
+      // affected route's own kiosk_color, instead of a generic "mixed" tier — the stripe
+      // colour itself names which route is down.
+      let classes;
+      if (!monitored) {
+        classes = ['reports-cal-cell--unmonitored'];
+      } else if (!entry) {
+        classes = ['reports-cal-cell--future'];
+      } else {
+        const statuses = entry.routeDetails.map(({ route, dayData }) => ({ route, status: dayData.status }));
+        const allClear = statuses.length > 0 && statuses.every(s => s.status === 'clear');
+        const allDisrupted = statuses.length > 0 && statuses.every(s => s.status === 'disrupted');
+        const disruptedOne = statuses.find(s => s.status === 'disrupted');
+        if (allClear) classes = ['reports-cal-cell--clear'];
+        else if (allDisrupted) classes = ['reports-cal-cell--disrupted'];
+        else if (disruptedOne) classes = ['reports-cal-cell--mixed', `kiosk-color--${disruptedOne.route.kiosk_color || 'blue'}`];
+        else classes = ['reports-cal-cell--future'];
+      }
+      cell.className = `reports-cal-cell ${classes.join(' ')}${isToday ? ' reports-cal-cell--today' : ''}`;
+      const needsCircle = classes.some(c => c === 'reports-cal-cell--clear' || c === 'reports-cal-cell--disrupted' || c === 'reports-cal-cell--mixed');
+      cell.innerHTML = needsCircle ? `<span class="reports-cal-date-circle">${day}</span>` : String(day);
 
       if (entry) {
         cell.style.cursor = 'pointer';
@@ -287,6 +304,13 @@ function renderDisruptionList(routes) {
 }
 
 /* ── Day-detail modal ── */
+function fmtAlternate(steps, durationS) {
+  const transit = (steps || []).filter(s => s.mode !== 'walking');
+  const via = transit.map(s => `${s.dep_name} → ${s.arr_name} (${s.mode})`).join(' + ');
+  const mins = durationS ? Math.round(durationS / 60) : null;
+  return mins ? `${via}, ~${mins} min` : via;
+}
+
 function showDayDetail(iso, routeDetails) {
   document.getElementById('day-detail-title').textContent = formatDateFull(iso);
   const body = document.getElementById('day-detail-body');
@@ -322,6 +346,8 @@ function showDayDetail(iso, routeDetails) {
               </div>
             </div>
           </div>`).join('')}
+        ${leg.alternate_steps && leg.alternate_steps.length ? `
+          <div class="day-detail-alternate">Alternate: ${esc(fmtAlternate(leg.alternate_steps, leg.duration_s))}</div>` : ''}
       </div>`).join('');
     return `
       <div style="margin-bottom:1rem">

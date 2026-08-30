@@ -261,9 +261,9 @@ tr:hover td { background: var(--surface2); }
   flex: 1;
 }
 
-/* Autocomplete */
-.autocomplete-wrapper { position: relative; }
-.autocomplete-list {
+/* TfL station search (button-triggered, issue #24) */
+.station-search { position: relative; }
+.ss-results {
   position: absolute;
   top: 100%;
   left: 0;
@@ -276,13 +276,23 @@ tr:hover td { background: var(--surface2); }
   overflow-y: auto;
   margin-top: 2px;
 }
-.autocomplete-item {
-  padding: 0.4rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.85rem;
+.ss-result { padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
+.ss-result:hover { background: var(--surface2); }
+.ss-result .ss-modes { color: var(--text-muted); font-size: 0.78rem; margin-left: 0.4rem; }
+.ss-empty { padding: 0.5rem 0.75rem; font-size: 0.82rem; color: var(--text-muted); }
+.ss-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  width: fit-content;
 }
-.autocomplete-item:hover, .autocomplete-item.active { background: var(--surface2); }
-.autocomplete-item .crs-code { color: var(--text-muted); font-size: 0.78rem; margin-left: 0.4rem; }
+.ss-chip-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
+.ss-chip-remove:hover { color: var(--text-pri); }
 
 /* Display / Kiosk page */
 .display-page { padding: 2rem; min-height: 100vh; }
@@ -412,6 +422,24 @@ tr:hover td { background: var(--surface2); }
 .reports-cal-cell--future     { background: #252530; border-color: #32323f; color: var(--text-sec); }
 .reports-cal-cell--unmonitored{ background: #18181e; border-color: #21212a; color: var(--text-muted); }
 .reports-cal-cell--today      { box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px #f5a623; z-index: 1; }
+
+/* Kiosk identity-stripe cells (issue #24): a mixed day (one of the 2 fixed routes disrupted,
+   the other clear) renders as a diagonal stripe of green + the affected route's own permanent
+   colour, so the stripe colour itself names which route is down. */
+.reports-cal-cell--mixed { color: #fff; cursor: pointer; border-color: transparent; }
+.kiosk-color--blue.reports-cal-cell--mixed   { background: linear-gradient(135deg, #2ec76a 50%, #3b82f6 50%); }
+.kiosk-color--yellow.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #eab308 50%); }
+.kiosk-color--green.reports-cal-cell--mixed  { background: linear-gradient(135deg, #2ec76a 50%, #16a34a 50%); }
+.kiosk-color--purple.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #a855f7 50%); }
+.kiosk-color--orange.reports-cal-cell--mixed { background: linear-gradient(135deg, #2ec76a 50%, #f97316 50%); }
+.kiosk-color--teal.reports-cal-cell--mixed   { background: linear-gradient(135deg, #2ec76a 50%, #14b8a6 50%); }
+.reports-cal-cell--mixed span.reports-cal-date-circle,
+.reports-cal-cell--clear span.reports-cal-date-circle,
+.reports-cal-cell--disrupted span.reports-cal-date-circle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(0,0,0,0.35);
+}
 
 /* Right: disruption panel */
 .reports-disrupt-panel {
@@ -672,6 +700,14 @@ tr:hover td { background: var(--surface2); }
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.day-detail-alternate {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--text-sec);
+  font-size: 12.5px;
 }
 .issue-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-row-title-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }

@@ -60,9 +60,10 @@ function formatDateShort(iso) {
 }
 
 /* ── Build unified day map from all routes ── */
-// Day-tier precedence, highest first — mirrors app/rollup.py's day_rollup_status, extended
-// with the caller-decided 'future' tier for a route that hasn't been scanned for this date yet.
-const DAY_TIER_ORDER = ['disagree', 'disrupted', 'clear_gtfs_only', 'clear', 'unknown', 'future'];
+// Day-tier precedence, highest first — mirrors the per-day status _build_route_data derives,
+// extended with the caller-decided 'future' tier for a route that hasn't been scanned for this
+// date yet.
+const DAY_TIER_ORDER = ['disrupted', 'clear', 'unknown', 'future'];
 
 function buildDayMap(routes) {
   const allScanDays = new Set(routes.flatMap(r => r.effective_scan_days || r.scan_days));
@@ -245,6 +246,13 @@ function renderDisruptionList(routes) {
 }
 
 /* ── Day-detail modal ── */
+function fmtAlternate(steps, durationS) {
+  const transit = (steps || []).filter(s => s.mode !== 'walking');
+  const via = transit.map(s => `${s.dep_name} → ${s.arr_name} (${s.mode})`).join(' + ');
+  const mins = durationS ? Math.round(durationS / 60) : null;
+  return mins ? `${via}, ~${mins} min` : via;
+}
+
 function showDayDetail(iso, routeDetails) {
   document.getElementById('day-detail-title').textContent = formatDateFull(iso);
 
@@ -281,6 +289,8 @@ function showDayDetail(iso, routeDetails) {
               </div>
             </div>
           </div>`).join('')}
+        ${leg.alternate_steps && leg.alternate_steps.length ? `
+          <div class="day-detail-alternate">Alternate: ${esc(fmtAlternate(leg.alternate_steps, leg.duration_s))}</div>` : ''}
       </div>`).join('');
     return `
       <div style="margin-bottom:1rem">

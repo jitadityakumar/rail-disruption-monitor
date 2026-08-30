@@ -1,29 +1,40 @@
 # Rail Disruption Monitor
 
-A self-hosted tool that monitors UK rail routes for disruptions and flags them before you travel. You define routes by origin, optional interchange, and destination, capture a baseline journey on a normal day, and the app scans upcoming weekends weekly to detect changes — rail replacement buses, significant delays, or trains no longer reaching their destination.
+A self-hosted tool that monitors UK rail routes for disruptions and flags them before you
+travel. You define routes by origin and destination station (picked via live TfL search),
+capture a baseline journey on a normal day, and the app scans upcoming dates weekly to detect
+changes — rail replacement buses, a diverted/interchange route, or a significant delay.
 
 ## How it works
 
-1. **Define a route** — specify an origin CRS, optional interchange CRS, and destination CRS (e.g. `BNS → CLJ → LRD`)
-2. **Capture a baseline** — the app queries the Google Maps Routes API at noon for each leg (outbound and return), showing journey options; you pick the one that represents normal service
-3. **Weekly scan** — every Sunday at 06:00 (by default), the app scans each configured weekday in your lookahead window, querying both outbound and return at noon
-4. **Disruption detection** — each leg is scanned independently and marked DISRUPTED if any of the following are true:
-   - A rail replacement bus appears on that leg
-   - Journey time exceeds baseline by more than a configurable threshold (default 20%)
-   - The train no longer reaches the baseline arrival station
-5. **Display view** — a kiosk-friendly page shows upcoming disruptions at a glance, and the reports page gives an 8-week calendar per route with per-day detail
+1. **Define a route** — search for an origin and destination station via TfL's own station
+   search (e.g. Barnes → London Waterloo); TfL resolves any interchange itself, no manual
+   "change at" station needed
+2. **Capture a baseline** — the app queries the TfL Unified API at noon for each direction
+   (outbound and return), showing the returned itineraries; you pick the one that represents
+   normal service
+3. **Weekly scan** — every Sunday at 06:00 (by default), the app scans each configured weekday
+   in your lookahead window, querying both outbound and return at noon
+4. **Disruption detection** — a date is marked DISRUPTED if no itinerary TfL returns
+   structurally matches the baseline: same ordered interchange station(s), every leg still its
+   expected transit mode (a leg becoming a rail replacement bus fails the match even if timing
+   otherwise lines up), and duration within a configurable threshold (default 20%) — never
+   driven by TfL's disruption-text fields, which are too noisy on their own
+5. **Display view** — a kiosk-friendly page shows upcoming disruptions at a glance, with
+   permanent per-route colour identity, and the reports page gives a calendar per route with
+   per-day detail, including the actual alternate route found on a disrupted day
 
 ## Prerequisites
 
 - Docker and Docker Compose
-- A [Google Maps Routes API](https://developers.google.com/maps/documentation/routes) key (with Routes API enabled)
-- A [RailData Stations API](https://www.raildata.org.uk/) key (used to look up station coordinates by CRS code)
+- A [TfL API](https://api-portal.tfl.gov.uk/) registered key (free, 500 req/min with
+  registration vs. 50 req/min anonymous)
 
 ## Setup
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in your API keys
+# Edit .env and fill in your TfL API key
 docker compose up -d
 ```
 
@@ -33,8 +44,7 @@ The app is available at `http://localhost:8000`.
 
 | Variable | Description | Default |
 |---|---|---|
-| `GOOGLE_MAPS_API_KEY` | Google Maps Routes API key | required |
-| `RAILDATA_STATIONS_API_KEY` | RailData Stations API key for CRS → coordinates lookup | required |
+| `TFL_API_KEY` | TfL Unified API registered key | required |
 | `DB_PATH` | Path to SQLite database inside container | `/data/rail.db` |
 | `SCAN_DOW` | APScheduler day-of-week string for weekly scan | `sun` |
 | `SCAN_HOUR` | Hour to run the weekly scan | `6` |
@@ -69,9 +79,9 @@ The audit workflow skips any CVEs listed in that file.
 
 | Path | Description |
 |---|---|
-| `/admin` | Manage routes, capture baselines, trigger manual scans |
-| `/kiosk` | Kiosk view — upcoming disruptions across all kiosk-visible routes (max 3), auto-refreshes every 5 minutes |
-| `/reports` | 8-week calendar per route with disruption detail and day-level modal |
+| `/admin` | Manage routes (with live TfL station search), capture baselines, trigger manual scans |
+| `/kiosk` | Kiosk view — upcoming disruptions across all kiosk-visible routes (max 3), each with a permanent identity colour, auto-refreshes every 5 minutes |
+| `/reports` | Calendar per route with disruption detail, alternate-route display, and day-level modal |
 
 ## Data storage
 
