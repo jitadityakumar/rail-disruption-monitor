@@ -83,8 +83,12 @@ function updateClock() {
   const now = new Date();
   document.getElementById('kiosk-clock').textContent =
     now.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  document.getElementById('kiosk-date').textContent =
-    now.toLocaleDateString('en-GB', { timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+/* "2026-08-30 20:25:21" -> "30-08-2026" */
+function ddMmYyyy(dateOrTimestamp) {
+  const [y, m, d] = dateOrTimestamp.slice(0, 10).split('-');
+  return `${d}-${m}-${y}`;
 }
 
 /* ── Icons ── */
@@ -233,15 +237,12 @@ function renderCalendar(routes, dayMap) {
 function renderRoutesList(routes) {
   const el = document.getElementById('routesList');
   el.innerHTML = routes.map(route => {
-    const scanned = route.last_scanned_at ? route.last_scanned_at.slice(0, 10) : 'Never';
     return `
       <div class="rmc">
         <div class="rmc-name"><span class="rmc-dot" style="background:${routeColorHex(route)}"></span>${esc(route.display_name)}</div>
         <div class="rmc-meta">
           <span class="rmc-item"><span class="rmc-label">Departs</span>${esc(route.departure_time)}</span>
           <span class="rmc-item"><span class="rmc-label">Returns</span>${esc(route.return_time)}</span>
-          <span class="rmc-item"><span class="rmc-label">Last scan</span>${esc(scanned)}</span>
-          ${route.first_clear_date ? `<span class="rmc-item"><span class="rmc-label">Next clear</span>${esc(formatDateShort(route.first_clear_date))}</span>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -366,8 +367,9 @@ async function loadKiosk() {
   renderDisruptionList(routes);
 
   const scannedAt = routes.find(r => r.last_scanned_at)?.last_scanned_at;
+  document.getElementById('kiosk-date').textContent = scannedAt ? `Last scan ${ddMmYyyy(scannedAt)}` : '';
   document.getElementById('kiosk-footer').textContent =
-    scannedAt ? `Last scan: ${scannedAt.slice(0, 16)} UTC · Refreshes every 5 minutes` : 'Refreshes every 5 minutes';
+    scannedAt ? `Last scan: ${ddMmYyyy(scannedAt)} ${scannedAt.slice(11, 16)} UTC · Refreshes every 5 minutes` : 'Refreshes every 5 minutes';
 }
 
 updateClock();

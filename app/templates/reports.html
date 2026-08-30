@@ -185,17 +185,12 @@ function renderCalendar(routes, dayMap) {
 function renderRoutesList(routes) {
   const el = document.getElementById('routesList');
   el.innerHTML = routes.map(route => {
-    const scanned = route.last_scanned_at
-      ? route.last_scanned_at.slice(0, 10)
-      : 'Never';
     return `
       <div class="rmc">
         <div class="rmc-name"><span class="rmc-dot" style="background:${routeColorHex(route)}"></span>${esc(route.display_name)}</div>
         <div class="rmc-meta">
           <span class="rmc-item"><span class="rmc-label">Departs</span>${esc(route.departure_time)}</span>
           <span class="rmc-item"><span class="rmc-label">Returns</span>${esc(route.return_time)}</span>
-          <span class="rmc-item"><span class="rmc-label">Last scan</span>${esc(scanned)}</span>
-          ${route.first_clear_date ? `<span class="rmc-item"><span class="rmc-label">Next clear</span>${esc(formatDateShort(route.first_clear_date))}</span>` : ''}
         </div>
       </div>`;
   }).join('');
