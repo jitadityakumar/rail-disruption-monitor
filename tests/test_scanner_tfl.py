@@ -191,3 +191,50 @@ def test_24_ambiguous_hub_ok_false(monkeypatch):
     result = tfl_client.fetch_journeys("HUBWAT", "910GBARNES", "2026-09-01", "12:00")
     assert result.ok is False
     assert result.error == "ambiguous_stop_point"
+
+
+def test_32_scan_direction_uses_per_direction_time(db, monkeypatch):
+    """departure_time/return_time replaced the old shared SCAN_SLOT constant (issue #24
+    follow-up) -- outbound must query at the route's departure_time, return at its
+    return_time, not the same slot for both."""
+    route_id = insert_route(db, departure_time="07:15", return_time="19:45")
+    insert_both_baselines(db, route_id, duration_s=1800, interchange_stops=[], leg_modes=["national-rail"])
+    conn = db.get_db()
+    row = conn.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
+    outbound_baseline = conn.execute(
+        "SELECT * FROM baselines WHERE route_id = ? AND direction = 'outbound'", (route_id,)
+    ).fetchone()
+    return_baseline = conn.execute(
+        "SELECT * FROM baselines WHERE route_id = ? AND direction = 'return'", (route_id,)
+    ).fetchone()
+    conn.close()
+
+    seen_query_dts = []
+
+    def fake_fetch(origin, dest, query_dt, route_id_arg, purpose):
+        seen_query_dts.append(query_dt)
+        return TflResult(ok=True, itineraries=[_it(departure_dt=query_dt)])
+
+    monkeypatch.setattr(tfl_client, "fetch_journeys_at", fake_fetch)
+    scanner._scan_direction(row, outbound_baseline, "2026-09-01", "outbound")
+    scanner._scan_direction(row, return_baseline, "2026-09-01", "return")
+
+    assert seen_query_dts[0] == dt.datetime(2026, 9, 1, 7, 15)
+    assert seen_query_dts[1] == dt.datetime(2026, 9, 1, 19, 45)
+
+
+def test_33_scan_window_end_date_current_plus_next_month():
+    """scan_window_end_date replaced the old per-route lookahead_weeks knob with a fixed
+    current-month-plus-next-month window (issue #24 follow-up)."""
+    assert scanner.scan_window_end_date(dt.date(2026, 8, 30)) == dt.date(2026, 9, 30)
+    assert scanner.scan_window_end_date(dt.date(2026, 1, 15)) == dt.date(2026, 2, 28)
+    assert scanner.scan_window_end_date(dt.date(2026, 11, 5)) == dt.date(2026, 12, 31)
+    assert scanner.scan_window_end_date(dt.date(2026, 12, 5)) == dt.date(2027, 1, 31)
+
+
+def test_34_target_dates_include_every_weekday(db):
+    """scan_days removed (issue #24 follow-up) -- every day in the window is scanned, not
+    just a configured subset of weekdays."""
+    dates = scanner._target_dates()
+    weekdays_present = {d.weekday() for d in dates}
+    assert weekdays_present == set(range(7))

@@ -420,7 +420,6 @@ tr:hover td { background: var(--surface2); }
 .reports-cal-cell--disrupted  { background: #e84545; border-color: #c43a3a; color: #fff; cursor: pointer; }
 .reports-cal-cell--disrupted:hover { background: #d43f3f; }
 .reports-cal-cell--future     { background: #252530; border-color: #32323f; color: var(--text-sec); }
-.reports-cal-cell--unmonitored{ background: #18181e; border-color: #21212a; color: var(--text-muted); }
 .reports-cal-cell--today      { box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px #f5a623; z-index: 1; }
 
 /* Kiosk identity-stripe cells (issue #24): a mixed day (one of the 2 fixed routes disrupted,

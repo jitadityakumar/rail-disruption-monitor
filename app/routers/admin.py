@@ -37,7 +37,6 @@ def list_routes():
     result = []
     for row in rows:
         d = dict(row)
-        d["scan_days"] = [int(x) for x in d["scan_days"].split(",")]
         d["kiosk_visible"] = bool(d["kiosk_visible"])
         d["has_baseline"] = (
             row["id"] in baseline_route_ids["outbound"] and row["id"] in baseline_route_ids["return"]
@@ -67,11 +66,11 @@ def create_route(body: RouteCreate):
         cur = db.execute(
             """INSERT INTO routes
                (name, origin_stop_id, origin_name, destination_stop_id, destination_name,
-                scan_days, lookahead_weeks, threshold_pct, kiosk_visible, kiosk_color)
+                departure_time, return_time, threshold_pct, kiosk_visible, kiosk_color)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name, body.origin.id, body.origin.name, body.destination.id, body.destination.name,
-                ",".join(str(d) for d in body.scan_days), body.lookahead_weeks, body.threshold_pct,
+                body.departure_time, body.return_time, body.threshold_pct,
                 int(body.kiosk_visible), body.kiosk_color,
             ),
         )
@@ -95,12 +94,12 @@ def update_route(route_id: int, body: RouteUpdate):
         if body.name is not None:
             fields.append("name = ?")
             params.append(body.name)
-        if body.scan_days is not None:
-            fields.append("scan_days = ?")
-            params.append(",".join(str(d) for d in body.scan_days))
-        if body.lookahead_weeks is not None:
-            fields.append("lookahead_weeks = ?")
-            params.append(body.lookahead_weeks)
+        if body.departure_time is not None:
+            fields.append("departure_time = ?")
+            params.append(body.departure_time)
+        if body.return_time is not None:
+            fields.append("return_time = ?")
+            params.append(body.return_time)
         if body.threshold_pct is not None:
             fields.append("threshold_pct = ?")
             params.append(body.threshold_pct)

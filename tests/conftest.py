@@ -27,8 +27,8 @@ def insert_route(
     origin_name="Barnes",
     destination_stop_id="910GWATRLMN",
     destination_name="London Waterloo",
-    scan_days="5,6",
-    lookahead_weeks=4,
+    departure_time="12:00",
+    return_time="12:00",
     threshold_pct=20,
     kiosk_visible=1,
     kiosk_color="blue",
@@ -38,10 +38,10 @@ def insert_route(
         cur = conn.execute(
             """INSERT INTO routes
                (name, origin_stop_id, origin_name, destination_stop_id, destination_name,
-                scan_days, lookahead_weeks, threshold_pct, kiosk_visible, kiosk_color)
+                departure_time, return_time, threshold_pct, kiosk_visible, kiosk_color)
                VALUES ('Test Route', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (origin_stop_id, origin_name, destination_stop_id, destination_name,
-             scan_days, lookahead_weeks, threshold_pct, kiosk_visible, kiosk_color),
+             departure_time, return_time, threshold_pct, kiosk_visible, kiosk_color),
         )
         conn.commit()
         return cur.lastrowid

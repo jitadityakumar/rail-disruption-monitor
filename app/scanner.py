@@ -10,21 +10,30 @@ from datetime import date, time, timedelta
 import tfl_client
 from database import get_db
 
-SCAN_SLOT = "12:00"
 TFL_SEARCH_WINDOW_MINUTES = 120
 TFL_MAX_CALLS_PER_DATE_DIRECTION = 8
 
 logger = logging.getLogger(__name__)
 
 
-def _target_dates(lookahead_weeks: int, scan_days: list[int]) -> list[date]:
+def scan_window_end_date(today: date | None = None) -> date:
+    """Last calendar day of *next* month from today -- current month + next month, per issue
+    #24 follow-up (replaces the old per-route lookahead_weeks knob with a fixed, app-wide
+    window). E.g. today=2026-08-30 -> 2026-09-30."""
+    today = today or date.today()
+    month_after_next = today.month + 2
+    year = today.year + (month_after_next - 1) // 12
+    month = (month_after_next - 1) % 12 + 1
+    first_of_month_after_next = date(year, month, 1)
+    return first_of_month_after_next - timedelta(days=1)
+
+
+def _target_dates() -> list[date]:
+    """Every day from today through scan_window_end_date() -- scanning is no longer limited to
+    specific weekdays (issue #24 follow-up: scan_days removed, every day is scanned)."""
     today = date.today()
-    end_date = today + timedelta(weeks=lookahead_weeks)
-    return [
-        today + timedelta(days=i)
-        for i in range((end_date - today).days + 1)
-        if (today + timedelta(days=i)).weekday() in scan_days
-    ]
+    end_date = scan_window_end_date(today)
+    return [today + timedelta(days=i) for i in range((end_date - today).days + 1)]
 
 
 def _itinerary_to_dict(it: tfl_client.Itinerary) -> dict:
@@ -56,7 +65,8 @@ def fetch_baseline_options(route_id: int, baseline_date: str) -> dict:
             (row["origin_stop_id"], row["destination_stop_id"]) if direction == "outbound"
             else (row["destination_stop_id"], row["origin_stop_id"])
         )
-        r = tfl_client.fetch_journeys(origin, dest, baseline_date, SCAN_SLOT, route_id, "baseline_preview")
+        slot = row["departure_time"] if direction == "outbound" else row["return_time"]
+        r = tfl_client.fetch_journeys(origin, dest, baseline_date, slot, route_id, "baseline_preview")
         if not r.ok:
             result[direction] = []
             continue
@@ -153,7 +163,8 @@ def _scan_direction(route, baseline, target_date: str, direction: str) -> dict:
         return {"status": "UNKNOWN", "reasons": ["baseline captured for different stations -- recapture required"],
                 "calls_made": 0, "window_fully_walked": False}
 
-    query_dt = datetime.datetime.combine(date.fromisoformat(target_date), time.fromisoformat(SCAN_SLOT))
+    slot = route["departure_time"] if direction == "outbound" else route["return_time"]
+    query_dt = datetime.datetime.combine(date.fromisoformat(target_date), time.fromisoformat(slot))
     window_end = query_dt + timedelta(minutes=TFL_SEARCH_WINDOW_MINUTES)
 
     calls_made = 0
@@ -249,8 +260,7 @@ def scan_route(route_id: int) -> dict:
     if not outbound_baseline or not return_baseline:
         raise ValueError(f"No baseline captured for route {route_id}")
 
-    scan_days = [int(d) for d in row["scan_days"].split(",")]
-    target_dates = _target_dates(row["lookahead_weeks"], scan_days)
+    target_dates = _target_dates()
 
     counts = {"NORMAL": 0, "DISRUPTED": 0, "UNKNOWN": 0}
     for target_date in target_dates:

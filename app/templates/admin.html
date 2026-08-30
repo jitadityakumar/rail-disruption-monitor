@@ -12,8 +12,8 @@
       <thead>
         <tr>
           <th>Route</th>
-          <th>Scan days</th>
-          <th>Lookahead</th>
+          <th>Departs</th>
+          <th>Returns</th>
           <th>Threshold</th>
           <th>Baseline</th>
           <th>Last scanned</th>
@@ -55,23 +55,17 @@
       <label>To</label>
       <div class="station-search" id="ss-dest"></div>
     </div>
-    <div class="form-group" style="margin-bottom:0.75rem">
-      <label>Scan days</label>
-      <div class="checkbox-group" id="scan-days-group">
-        <label><input type="checkbox" name="scan_day" value="0"> Mon</label>
-        <label><input type="checkbox" name="scan_day" value="1"> Tue</label>
-        <label><input type="checkbox" name="scan_day" value="2"> Wed</label>
-        <label><input type="checkbox" name="scan_day" value="3"> Thu</label>
-        <label><input type="checkbox" name="scan_day" value="4"> Fri</label>
-        <label><input type="checkbox" name="scan_day" value="5" checked> Sat</label>
-        <label><input type="checkbox" name="scan_day" value="6" checked> Sun</label>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Departure time</label>
+        <input type="time" id="departure-time" value="08:00">
+      </div>
+      <div class="form-group">
+        <label>Return time</label>
+        <input type="time" id="return-time" value="18:00">
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group">
-        <label>Lookahead weeks</label>
-        <input type="number" id="lookahead-weeks" value="4" min="1" max="52" style="width:80px">
-      </div>
       <div class="form-group">
         <label>Duration threshold %</label>
         <input type="number" id="threshold-pct" value="20" min="5" max="100" style="width:80px">
@@ -154,23 +148,17 @@
       <label>Name</label>
       <input type="text" id="edit-name">
     </div>
-    <div class="form-group" style="margin-bottom:0.75rem">
-      <label>Scan days</label>
-      <div class="checkbox-group" id="edit-scan-days-group">
-        <label><input type="checkbox" name="edit_scan_day" value="0"> Mon</label>
-        <label><input type="checkbox" name="edit_scan_day" value="1"> Tue</label>
-        <label><input type="checkbox" name="edit_scan_day" value="2"> Wed</label>
-        <label><input type="checkbox" name="edit_scan_day" value="3"> Thu</label>
-        <label><input type="checkbox" name="edit_scan_day" value="4"> Fri</label>
-        <label><input type="checkbox" name="edit_scan_day" value="5"> Sat</label>
-        <label><input type="checkbox" name="edit_scan_day" value="6"> Sun</label>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Departure time</label>
+        <input type="time" id="edit-departure-time">
+      </div>
+      <div class="form-group">
+        <label>Return time</label>
+        <input type="time" id="edit-return-time">
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group">
-        <label>Lookahead weeks</label>
-        <input type="number" id="edit-lookahead" min="1" max="52" style="width:80px">
-      </div>
       <div class="form-group">
         <label>Duration threshold %</label>
         <input type="number" id="edit-threshold" min="5" max="100" style="width:80px">
@@ -205,7 +193,6 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 let _baselineRouteId = null;
 let _baselineOptions = null;
 let _routesCache = {};
@@ -222,8 +209,8 @@ async function loadRoutes() {
   tbody.innerHTML = rows.map(r => `
     <tr>
       <td><strong>${esc(r.display_name)}</strong><br><span class="info-msg">${esc(r.origin_name)} → ${esc(r.destination_name)}</span></td>
-      <td>${r.scan_days.map(d => DAY_NAMES[d]).join(', ')}</td>
-      <td>${r.lookahead_weeks}w</td>
+      <td>${esc(r.departure_time)}</td>
+      <td>${esc(r.return_time)}</td>
       <td>${r.threshold_pct}%</td>
       <td>${r.has_baseline ? '<span class="badge badge-NORMAL">Yes</span>' : '<span class="badge badge-UNKNOWN">No</span>'}</td>
       <td>${r.last_scanned_at ? r.last_scanned_at.replace('T',' ').slice(0,16) + ' UTC' : '—'}</td>
@@ -320,19 +307,13 @@ async function submitAddRoute(btn) {
     return;
   }
 
-  const scan_days = Array.from(document.querySelectorAll('[name="scan_day"]:checked')).map(c => +c.value);
-  if (!scan_days.length) {
-    err.textContent = 'Select at least one scan day.';
-    return;
-  }
-
   btn.disabled = true;
   try {
     await postJSON('/api/routes', {
       origin: { id: origin.id, name: origin.name },
       destination: { id: destination.id, name: destination.name },
-      scan_days,
-      lookahead_weeks: +document.getElementById('lookahead-weeks').value,
+      departure_time: document.getElementById('departure-time').value,
+      return_time: document.getElementById('return-time').value,
       threshold_pct: +document.getElementById('threshold-pct').value,
       kiosk_visible: document.getElementById('kiosk-visible').value === 'true',
       kiosk_color: document.getElementById('kiosk-color').value,
@@ -467,30 +448,23 @@ function openEditModal(routeId) {
   const route = _routesCache[routeId];
   document.getElementById('edit-route-id').value = route.id;
   document.getElementById('edit-name').value = route.name;
-  document.getElementById('edit-lookahead').value = route.lookahead_weeks;
+  document.getElementById('edit-departure-time').value = route.departure_time;
+  document.getElementById('edit-return-time').value = route.return_time;
   document.getElementById('edit-threshold').value = route.threshold_pct;
   document.getElementById('edit-kiosk').value = route.kiosk_visible ? 'true' : 'false';
   document.getElementById('edit-kiosk-color').value = route.kiosk_color || 'blue';
-  document.querySelectorAll('[name="edit_scan_day"]').forEach(cb => {
-    cb.checked = route.scan_days.includes(+cb.value);
-  });
   document.getElementById('edit-error').textContent = '';
   openModal('edit-modal');
 }
 
 async function submitEditRoute(btn) {
   const id = document.getElementById('edit-route-id').value;
-  const scan_days = Array.from(document.querySelectorAll('[name="edit_scan_day"]:checked')).map(c => +c.value);
-  if (!scan_days.length) {
-    document.getElementById('edit-error').textContent = 'Select at least one scan day.';
-    return;
-  }
   btn.disabled = true;
   try {
     await patchJSON(`/api/routes/${id}`, {
       name: document.getElementById('edit-name').value.trim(),
-      scan_days,
-      lookahead_weeks: +document.getElementById('edit-lookahead').value,
+      departure_time: document.getElementById('edit-departure-time').value,
+      return_time: document.getElementById('edit-return-time').value,
       threshold_pct: +document.getElementById('edit-threshold').value,
       kiosk_visible: document.getElementById('edit-kiosk').value === 'true',
       kiosk_color: document.getElementById('edit-kiosk-color').value,

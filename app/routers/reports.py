@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+import scanner
 from database import get_db
 from display import route_direction_labels, route_display_name
 from shared_templates import templates
@@ -56,13 +57,14 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
     result = []
     today = date.today()
 
+    window_end = scanner.scan_window_end_date(today)
+
     for route in routes:
         route_dict = dict(route)
-        route_dict["scan_days"] = [int(x) for x in route_dict["scan_days"].split(",")]
         route_dict["kiosk_visible"] = bool(route_dict["kiosk_visible"])
         route_dict["display_name"] = route_display_name(route)
         route_dict["direction_labels"] = route_direction_labels(route)
-        route_dict["scan_weekdays"] = route_dict["scan_days"]
+        route_dict["scan_window_end"] = window_end.isoformat()
 
         baselines = {
             b["direction"]: b
@@ -71,15 +73,14 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
             ).fetchall()
         }
 
-        window_weeks = route["lookahead_weeks"]
         scan_rows = db.execute(
             """SELECT target_date, direction, status, duration_s, matched_steps, alternate_steps,
                       disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
                AND target_date >= date('now')
-               AND target_date <= date('now', ? || ' days')
+               AND target_date <= ?
                ORDER BY target_date, direction""",
-            (route["id"], window_weeks * 7),
+            (route["id"], window_end.isoformat()),
         ).fetchall()
 
         direction_label_map = {lbl["key"]: lbl["label"] for lbl in route_dict["direction_labels"]}
@@ -131,16 +132,13 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
             1 for d in per_day.values() if d["status"] == "disrupted"
         )
 
-        scan_days_set = set(route_dict["scan_days"])
-        lookahead_end = today + timedelta(days=window_weeks * 7)
         first_clear = None
         cur = today + timedelta(days=1)
-        while cur <= lookahead_end:
-            if cur.weekday() in scan_days_set:
-                ds = cur.isoformat()
-                if ds in per_day and per_day[ds]["status"] == "clear":
-                    first_clear = ds
-                    break
+        while cur <= window_end:
+            ds = cur.isoformat()
+            if ds in per_day and per_day[ds]["status"] == "clear":
+                first_clear = ds
+                break
             cur += timedelta(days=1)
         route_dict["first_clear_date"] = first_clear
 

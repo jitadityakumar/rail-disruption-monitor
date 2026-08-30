@@ -25,7 +25,6 @@ def test_26_hub_prefixed_id_rejected_at_model_layer(client):
     payload = {
         "origin": {"id": "HUBWAT", "name": "Waterloo"},
         "destination": {"id": "910GBARNES", "name": "Barnes"},
-        "scan_days": [5, 6],
     }
     resp = client.post("/api/routes", json=payload)
     assert resp.status_code == 422
@@ -36,7 +35,6 @@ def test_27_nonexistent_stop_id_400(client, monkeypatch):
     payload = {
         "origin": {"id": "910GNOPE", "name": "Nope"},
         "destination": {"id": "910GBARNES", "name": "Barnes"},
-        "scan_days": [5, 6],
     }
     resp = client.post("/api/routes", json=payload)
     assert resp.status_code == 400
@@ -76,7 +74,6 @@ def test_28_valid_route_created(client, monkeypatch):
     payload = {
         "origin": {"id": "910GBARNES", "name": "Barnes"},
         "destination": {"id": "910GWATRLMN", "name": "London Waterloo"},
-        "scan_days": [5, 6],
     }
     resp = client.post("/api/routes", json=payload)
     assert resp.status_code == 201
