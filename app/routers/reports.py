@@ -168,16 +168,17 @@ def get_reports():
 @router.get("/api/reports/{route_id}")
 def get_route_report(route_id: int):
     db = get_db()
-    route = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
-    if not route:
-        db.close()
-        raise HTTPException(status_code=404, detail="Route not found")
+    try:
+        route = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
+        if not route:
+            raise HTTPException(status_code=404, detail="Route not found")
 
-    scan_rows = db.execute(
-        "SELECT * FROM scan_results WHERE route_id = ? ORDER BY target_date, direction",
-        (route_id,),
-    ).fetchall()
-    db.close()
+        scan_rows = db.execute(
+            "SELECT * FROM scan_results WHERE route_id = ? ORDER BY target_date, direction",
+            (route_id,),
+        ).fetchall()
+    finally:
+        db.close()
 
     results = []
     for r in scan_rows:

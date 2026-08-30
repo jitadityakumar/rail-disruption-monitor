@@ -26,12 +26,14 @@ def get_admin_page(request: Request):
 @router.get("/api/routes")
 def list_routes():
     db = get_db()
-    rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
-    baseline_route_ids = {"outbound": set(), "return": set()}
-    for r in db.execute("SELECT route_id, direction FROM baselines").fetchall():
-        if r["direction"] in baseline_route_ids:
-            baseline_route_ids[r["direction"]].add(r["route_id"])
-    db.close()
+    try:
+        rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
+        baseline_route_ids = {"outbound": set(), "return": set()}
+        for r in db.execute("SELECT route_id, direction FROM baselines").fetchall():
+            if r["direction"] in baseline_route_ids:
+                baseline_route_ids[r["direction"]].add(r["route_id"])
+    finally:
+        db.close()
     result = []
     for row in rows:
         d = dict(row)
@@ -53,89 +55,90 @@ def create_route(body: RouteCreate):
 
     name = body.name or f"{body.origin.name} to {body.destination.name}"
     db = get_db()
+    try:
+        if body.kiosk_visible:
+            kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
+            if kiosk_count >= 3:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+                )
 
-    if body.kiosk_visible:
-        kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
-        if kiosk_count >= 3:
-            db.close()
-            raise HTTPException(
-                status_code=422,
-                detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
-            )
-
-    cur = db.execute(
-        """INSERT INTO routes
-           (name, origin_stop_id, origin_name, destination_stop_id, destination_name,
-            scan_days, lookahead_weeks, threshold_pct, kiosk_visible, kiosk_color)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            name, body.origin.id, body.origin.name, body.destination.id, body.destination.name,
-            ",".join(str(d) for d in body.scan_days), body.lookahead_weeks, body.threshold_pct,
-            int(body.kiosk_visible), body.kiosk_color,
-        ),
-    )
-    db.commit()
-    route_id = cur.lastrowid
-    db.close()
+        cur = db.execute(
+            """INSERT INTO routes
+               (name, origin_stop_id, origin_name, destination_stop_id, destination_name,
+                scan_days, lookahead_weeks, threshold_pct, kiosk_visible, kiosk_color)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                name, body.origin.id, body.origin.name, body.destination.id, body.destination.name,
+                ",".join(str(d) for d in body.scan_days), body.lookahead_weeks, body.threshold_pct,
+                int(body.kiosk_visible), body.kiosk_color,
+            ),
+        )
+        db.commit()
+        route_id = cur.lastrowid
+    finally:
+        db.close()
     return {"id": route_id, "name": name}
 
 
 @router.patch("/api/routes/{route_id}")
 def update_route(route_id: int, body: RouteUpdate):
     db = get_db()
-    row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
-    if not row:
+    try:
+        row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Route not found")
+
+        fields = []
+        params = []
+        if body.name is not None:
+            fields.append("name = ?")
+            params.append(body.name)
+        if body.scan_days is not None:
+            fields.append("scan_days = ?")
+            params.append(",".join(str(d) for d in body.scan_days))
+        if body.lookahead_weeks is not None:
+            fields.append("lookahead_weeks = ?")
+            params.append(body.lookahead_weeks)
+        if body.threshold_pct is not None:
+            fields.append("threshold_pct = ?")
+            params.append(body.threshold_pct)
+        if body.kiosk_visible is not None:
+            if body.kiosk_visible and not row["kiosk_visible"]:
+                kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
+                if kiosk_count >= 3:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+                    )
+            fields.append("kiosk_visible = ?")
+            params.append(int(body.kiosk_visible))
+        if body.kiosk_color is not None:
+            fields.append("kiosk_color = ?")
+            params.append(body.kiosk_color)
+
+        if fields:
+            params.append(route_id)
+            db.execute(f"UPDATE routes SET {', '.join(fields)} WHERE id = ?", params)
+            db.commit()
+    finally:
         db.close()
-        raise HTTPException(status_code=404, detail="Route not found")
-
-    fields = []
-    params = []
-    if body.name is not None:
-        fields.append("name = ?")
-        params.append(body.name)
-    if body.scan_days is not None:
-        fields.append("scan_days = ?")
-        params.append(",".join(str(d) for d in body.scan_days))
-    if body.lookahead_weeks is not None:
-        fields.append("lookahead_weeks = ?")
-        params.append(body.lookahead_weeks)
-    if body.threshold_pct is not None:
-        fields.append("threshold_pct = ?")
-        params.append(body.threshold_pct)
-    if body.kiosk_visible is not None:
-        if body.kiosk_visible and not row["kiosk_visible"]:
-            kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
-            if kiosk_count >= 3:
-                db.close()
-                raise HTTPException(
-                    status_code=422,
-                    detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
-                )
-        fields.append("kiosk_visible = ?")
-        params.append(int(body.kiosk_visible))
-    if body.kiosk_color is not None:
-        fields.append("kiosk_color = ?")
-        params.append(body.kiosk_color)
-
-    if fields:
-        params.append(route_id)
-        db.execute(f"UPDATE routes SET {', '.join(fields)} WHERE id = ?", params)
-        db.commit()
-    db.close()
     return {"ok": True}
 
 
 @router.delete("/api/routes/{route_id}", status_code=204)
 def delete_route(route_id: int):
     db = get_db()
-    row = db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone()
-    if not row:
+    try:
+        row = db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Route not found")
+        db.execute("UPDATE api_usage_log SET route_id = NULL WHERE route_id = ?", (route_id,))
+        db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
+        db.commit()
+    finally:
         db.close()
-        raise HTTPException(status_code=404, detail="Route not found")
-    db.execute("UPDATE api_usage_log SET route_id = NULL WHERE route_id = ?", (route_id,))
-    db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-    db.commit()
-    db.close()
 
 
 @router.post("/api/routes/{route_id}/baseline/options")
@@ -171,8 +174,10 @@ def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
 @router.get("/api/routes/{route_id}/baseline")
 def get_baseline(route_id: int):
     db = get_db()
-    rows = db.execute("SELECT * FROM baselines WHERE route_id = ?", (route_id,)).fetchall()
-    db.close()
+    try:
+        rows = db.execute("SELECT * FROM baselines WHERE route_id = ?", (route_id,)).fetchall()
+    finally:
+        db.close()
     if not rows:
         raise HTTPException(status_code=404, detail="No baseline for this route")
 
