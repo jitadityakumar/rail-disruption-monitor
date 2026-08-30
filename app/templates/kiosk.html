@@ -83,8 +83,12 @@ function updateClock() {
   const now = new Date();
   document.getElementById('kiosk-clock').textContent =
     now.toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  document.getElementById('kiosk-date').textContent =
-    now.toLocaleDateString('en-GB', { timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+/* "2026-08-30 20:25:21" -> "30-08-2026" */
+function ddMmYyyy(dateOrTimestamp) {
+  const [y, m, d] = dateOrTimestamp.slice(0, 10).split('-');
+  return `${d}-${m}-${y}`;
 }
 
 /* ── Icons ── */
@@ -109,20 +113,41 @@ function formatDateShort(iso) {
 }
 
 /* ── Build unified day map from all routes ── */
-// Day-tier precedence, highest first — mirrors app/rollup.py's day_rollup_status, extended
-// with the caller-decided 'future' tier for a route that hasn't been scanned for this date yet.
-const DAY_TIER_ORDER = ['disagree', 'disrupted', 'clear_gtfs_only', 'clear', 'unknown', 'future'];
+// Day-tier precedence, highest first — mirrors the per-day status _build_route_data derives,
+// extended with the caller-decided 'future' tier for a route that hasn't been scanned for this
+// date yet.
+const DAY_TIER_ORDER = ['disrupted', 'clear', 'unknown', 'future'];
+
+/* ── Per-route colours ── */
+const CLEAR_HEX = '#2ec76a';
+const UNKNOWN_HEX = '#4b4b58';
+const KIOSK_HEX = { blue: '#3b82f6', yellow: '#eab308', green: '#16a34a', purple: '#a855f7', orange: '#f97316', teal: '#14b8a6' };
+function routeColorHex(route) { return KIOSK_HEX[route.kiosk_color] || KIOSK_HEX.blue; }
+
+/* Repeating diagonal stripe, one band per monitored route: green where that route is clear
+   that day, the route's own colour where it's disrupted -- the stripe itself names which
+   route(s) are down, so no separate legend is needed. */
+function computeCellBackground(routeDetails) {
+  const colors = routeDetails.map(({ route, dayData }) => {
+    if (dayData.status === 'clear') return CLEAR_HEX;
+    if (dayData.status === 'disrupted') return routeColorHex(route);
+    return UNKNOWN_HEX;
+  });
+  const allClear = colors.every(c => c === CLEAR_HEX);
+  if (allClear) return { background: CLEAR_HEX, allClear: true };
+
+  const band = 14;
+  const stops = colors.map((c, i) => `${c} ${i * band}px ${(i + 1) * band}px`).join(', ');
+  return { background: `repeating-linear-gradient(135deg, ${stops})`, allClear: false };
+}
 
 function buildDayMap(routes) {
-  const allScanDays = new Set(routes.flatMap(r => r.effective_scan_days || r.scan_days));
   const allDates = new Set(routes.flatMap(r => Object.keys(r.per_day || {})));
   const dayMap = {};
   for (const iso of allDates) {
-    const dow = (new Date(iso + 'T12:00:00').getDay() + 6) % 7; // Mon=0
     let worstTierIdx = Infinity; // lower index = more severe, per DAY_TIER_ORDER
     const routeDetails = [];
     for (const route of routes) {
-      if (!(route.effective_scan_days || route.scan_days).includes(dow)) continue;
       const dayData = (route.per_day || {})[iso];
       const tier = dayData ? dayData.status : 'future';
       const idx = DAY_TIER_ORDER.indexOf(tier);
@@ -132,11 +157,11 @@ function buildDayMap(routes) {
     if (!routeDetails.length) continue;
     dayMap[iso] = { status: DAY_TIER_ORDER[worstTierIdx], routeDetails };
   }
-  return { dayMap, allScanDays };
+  return { dayMap };
 }
 
 /* ── Calendar ── */
-function renderCalendar(routes, dayMap, allScanDays) {
+function renderCalendar(routes, dayMap) {
   const panel = document.getElementById('calPanel');
   panel.innerHTML = '';
 
@@ -181,21 +206,19 @@ function renderCalendar(routes, dayMap, allScanDays) {
       const dateObj = new Date(year, month, day);
       dateObj.setHours(0,0,0,0);
       const iso      = toISO(dateObj);
-      const dow      = (dateObj.getDay() + 6) % 7;
       const isToday  = iso === todayISO;
       const entry    = dayMap[iso];
-      const monitored = allScanDays.has(dow);
-
-      let state;
-      if (!monitored)  state = 'unmonitored';
-      else if (entry)  state = entry.status;
-      else             state = 'future';
 
       const cell = document.createElement('div');
-      cell.className = `reports-cal-cell reports-cal-cell--${state}${isToday ? ' reports-cal-cell--today' : ''}`;
-      cell.textContent = day;
 
-      if (entry) {
+      if (!entry) {
+        cell.className = `reports-cal-cell reports-cal-cell--future${isToday ? ' reports-cal-cell--today' : ''}`;
+        cell.textContent = day;
+      } else {
+        const { background, allClear } = computeCellBackground(entry.routeDetails);
+        cell.className = `reports-cal-cell ${allClear ? 'reports-cal-cell--clear' : 'reports-cal-cell--pattern'}${isToday ? ' reports-cal-cell--today' : ''}`;
+        if (!allClear) cell.style.background = background;
+        cell.innerHTML = `<span class="reports-cal-date-circle">${day}</span>`;
         cell.style.cursor = 'pointer';
         cell.addEventListener('click', () => showDayDetail(iso, entry.routeDetails));
       }
@@ -207,35 +230,19 @@ function renderCalendar(routes, dayMap, allScanDays) {
     frag.appendChild(block);
   }
 
-  const legend = document.createElement('div');
-  legend.className = 'report-legend';
-  legend.innerHTML = `
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#2ec76a"></div><span class="report-legend-label">Clear</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#e84545"></div><span class="report-legend-label">Disrupted</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#252530;border:1px solid #32323f"></div><span class="report-legend-label">Pending scan</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch" style="background:#18181e;border:1px solid #21212a"></div><span class="report-legend-label">Not monitored</span></div>
-    <div class="report-legend-item"><div class="report-legend-swatch report-legend-swatch--today"></div><span class="report-legend-label">Today</span></div>`;
-
   panel.appendChild(frag);
-  panel.appendChild(legend);
 }
 
 /* ── Routes monitored ── */
-const DOW_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-
 function renderRoutesList(routes) {
   const el = document.getElementById('routesList');
   el.innerHTML = routes.map(route => {
-    const days = route.scan_days.map(d => DOW_LABELS[d]).join(', ');
-    const scanned = route.last_scanned_at ? route.last_scanned_at.slice(0, 10) : 'Never';
     return `
       <div class="rmc">
-        <div class="rmc-name">${esc(route.display_name)}</div>
+        <div class="rmc-name"><span class="rmc-dot" style="background:${routeColorHex(route)}"></span>${esc(route.display_name)}</div>
         <div class="rmc-meta">
-          <span class="rmc-item"><span class="rmc-label">Days</span>${esc(days)}</span>
-          <span class="rmc-item"><span class="rmc-label">Lookahead</span>${route.lookahead_weeks} weeks</span>
-          <span class="rmc-item"><span class="rmc-label">Last scan</span>${esc(scanned)}</span>
-          ${route.first_clear_date ? `<span class="rmc-item"><span class="rmc-label">Next clear</span>${esc(formatDateShort(route.first_clear_date))}</span>` : ''}
+          <span class="rmc-item"><span class="rmc-label">Departs</span>${esc(route.departure_time)}</span>
+          <span class="rmc-item"><span class="rmc-label">Returns</span>${esc(route.return_time)}</span>
         </div>
       </div>`;
   }).join('');
@@ -272,8 +279,11 @@ function renderDisruptionList(routes) {
     const legsHtml = disrupted.map(leg => `
       <div class="rdc-leg">
         <div class="rdc-leg-dir">${esc(leg.label)}</div>
-        ${leg.issues.map(issue => `
-          <div class="rdc-leg-reason">${issueIconSvg(issue.type)} ${esc(issue.title)}</div>`).join('')}
+        ${leg.issues.length ? `
+          <div class="rdc-leg-reason">${leg.issues.map(issue =>
+            `${issueIconSvg(issue.type)} ${esc(issue.title)}${issue.pill ? ' ' + esc(issue.pill) : ''}`
+          ).join(' &nbsp;·&nbsp; ')}</div>` : ''}
+        ${leg.route_chain ? `<div class="rdc-leg-route">${esc(leg.route_chain)}</div>` : ''}
       </div>`).join('');
     return `
       <div class="rdc">
@@ -287,6 +297,7 @@ function renderDisruptionList(routes) {
 }
 
 /* ── Day-detail modal ── */
+
 function showDayDetail(iso, routeDetails) {
   document.getElementById('day-detail-title').textContent = formatDateFull(iso);
   const body = document.getElementById('day-detail-body');
@@ -322,6 +333,8 @@ function showDayDetail(iso, routeDetails) {
               </div>
             </div>
           </div>`).join('')}
+        ${leg.route_chain ? `
+          <div class="day-detail-alternate">Alternate: ${esc(leg.route_chain)}</div>` : ''}
       </div>`).join('');
     return `
       <div style="margin-bottom:1rem">
@@ -348,14 +361,15 @@ async function loadKiosk() {
     return;
   }
 
-  const { dayMap, allScanDays } = buildDayMap(routes);
-  renderCalendar(routes, dayMap, allScanDays);
+  const { dayMap } = buildDayMap(routes);
+  renderCalendar(routes, dayMap);
   renderRoutesList(routes);
   renderDisruptionList(routes);
 
   const scannedAt = routes.find(r => r.last_scanned_at)?.last_scanned_at;
+  document.getElementById('kiosk-date').textContent = scannedAt ? `Last scan ${ddMmYyyy(scannedAt)}` : '';
   document.getElementById('kiosk-footer').textContent =
-    scannedAt ? `Last scan: ${scannedAt.slice(0, 16)} UTC · Refreshes every 5 minutes` : 'Refreshes every 5 minutes';
+    scannedAt ? `Last scan: ${ddMmYyyy(scannedAt)} ${scannedAt.slice(11, 16)} UTC · Refreshes every 5 minutes` : 'Refreshes every 5 minutes';
 }
 
 updateClock();

@@ -1,50 +1,50 @@
+import re
 from typing import Literal, Optional
-from pydantic import BaseModel, field_validator
+
+from pydantic import BaseModel, Field, field_validator
+
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-def _validate_scan_days(v: list[int]) -> list[int]:
-    if not v:
-        raise ValueError("scan_days must not be empty")
-    for d in v:
-        if d < 0 or d > 6:
-            raise ValueError("scan_days must be integers 0 (Mon) – 6 (Sun)")
+def _validate_hhmm(v: str) -> str:
+    if not _TIME_RE.match(v):
+        raise ValueError("time must be in HH:MM 24-hour format")
     return v
+
+
+KioskColor = Literal["blue", "yellow", "green", "purple", "orange", "teal"]
+
+
+class StopPoint(BaseModel):
+    id: str
+    name: str
+
+    @field_validator("id")
+    @classmethod
+    def reject_hub(cls, v):
+        if v.upper().startswith("HUB"):
+            raise ValueError(
+                f"StopPoint id {v!r} is a multi-modal HUB group, not a concrete station -- "
+                "TfL's JourneyResults rejects HUB ids outright (HTTP 300). Pick a specific "
+                "child station from the search results instead."
+            )
+        return v
 
 
 class RouteCreate(BaseModel):
     name: str = ""
-    origin_crs: str
-    change_crs: Optional[str] = None
-    destination_crs: str
-    scan_days: list[int]
-    lookahead_weeks: int = 4
+    origin: StopPoint
+    destination: StopPoint
+    departure_time: str = "08:00"
+    return_time: str = "18:00"
     threshold_pct: int = 20
     kiosk_visible: bool = True
-    scan_source: Literal["maps", "gtfs", "both"] = "maps"
-    gtfs_lookahead_weeks: Optional[int] = None
-    gtfs_scan_days: Optional[list[int]] = None
+    kiosk_color: KioskColor = "blue"
 
-    @field_validator("origin_crs", "destination_crs")
+    @field_validator("departure_time", "return_time")
     @classmethod
-    def upper_crs(cls, v):
-        return v.upper()
-
-    @field_validator("change_crs")
-    @classmethod
-    def upper_change_crs(cls, v):
-        return v.upper() if v else v
-
-    @field_validator("scan_days")
-    @classmethod
-    def validate_scan_days(cls, v):
-        return _validate_scan_days(v)
-
-    @field_validator("lookahead_weeks")
-    @classmethod
-    def validate_lookahead(cls, v):
-        if v < 1:
-            raise ValueError("lookahead_weeks must be at least 1")
-        return v
+    def validate_time(cls, v):
+        return _validate_hhmm(v)
 
     @field_validator("threshold_pct")
     @classmethod
@@ -53,44 +53,21 @@ class RouteCreate(BaseModel):
             raise ValueError("threshold_pct must be greater than 0")
         return v
 
-    @field_validator("gtfs_lookahead_weeks")
-    @classmethod
-    def validate_gtfs_lookahead(cls, v):
-        if v is not None and v < 1:
-            raise ValueError("gtfs_lookahead_weeks must be at least 1")
-        return v
-
-    @field_validator("gtfs_scan_days")
-    @classmethod
-    def validate_gtfs_scan_days(cls, v):
-        if v is None:
-            return v
-        return _validate_scan_days(v)
-
 
 class RouteUpdate(BaseModel):
     name: Optional[str] = None
-    scan_days: Optional[list[int]] = None
-    lookahead_weeks: Optional[int] = None
+    departure_time: Optional[str] = None
+    return_time: Optional[str] = None
     threshold_pct: Optional[int] = None
     kiosk_visible: Optional[bool] = None
-    scan_source: Optional[Literal["maps", "gtfs", "both"]] = None
-    gtfs_lookahead_weeks: Optional[int] = None
-    gtfs_scan_days: Optional[list[int]] = None
+    kiosk_color: Optional[KioskColor] = None
 
-    @field_validator("scan_days")
+    @field_validator("departure_time", "return_time")
     @classmethod
-    def validate_scan_days(cls, v):
+    def validate_time(cls, v):
         if v is None:
             return v
-        return _validate_scan_days(v)
-
-    @field_validator("lookahead_weeks")
-    @classmethod
-    def validate_lookahead(cls, v):
-        if v is not None and v < 1:
-            raise ValueError("lookahead_weeks must be at least 1")
-        return v
+        return _validate_hhmm(v)
 
     @field_validator("threshold_pct")
     @classmethod
@@ -99,51 +76,20 @@ class RouteUpdate(BaseModel):
             raise ValueError("threshold_pct must be greater than 0")
         return v
 
-    @field_validator("gtfs_lookahead_weeks")
-    @classmethod
-    def validate_gtfs_lookahead(cls, v):
-        if v is not None and v < 1:
-            raise ValueError("gtfs_lookahead_weeks must be at least 1")
-        return v
-
-    @field_validator("gtfs_scan_days")
-    @classmethod
-    def validate_gtfs_scan_days(cls, v):
-        if v is None:
-            return v
-        return _validate_scan_days(v)
-
 
 class BaselineTrigger(BaseModel):
     baseline_date: str
 
 
-class LegSelection(BaseModel):
-    duration_s: Optional[int] = None
-    steps: list = []
-    dep_stop: Optional[str] = None
-    arr_stop: Optional[str] = None
+class ItineraryChoice(BaseModel):
+    duration_s: int
+    interchange_stops: list[str]
+    leg_modes: list[str]
+    steps: list
 
 
 class BaselineConfirm(BaseModel):
     baseline_date: str
-    outbound_leg1: LegSelection
-    outbound_leg2: Optional[LegSelection] = None
-    return_leg1: LegSelection
-    return_leg2: Optional[LegSelection] = None
-
-
-class GtfsLegSelection(BaseModel):
-    duration_s: Optional[int] = None
-    departure_time: str
-    dep_stop: str
-    arr_stop: str
-    intermediate_stops: list = []
-
-
-class GtfsBaselineConfirm(BaseModel):
-    baseline_date: str
-    outbound_leg1: GtfsLegSelection
-    outbound_leg2: Optional[GtfsLegSelection] = None
-    return_leg1: GtfsLegSelection
-    return_leg2: Optional[GtfsLegSelection] = None
+    outbound: ItineraryChoice
+    return_: ItineraryChoice = Field(alias="return")
+    model_config = {"populate_by_name": True}

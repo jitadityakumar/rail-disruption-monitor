@@ -4,19 +4,13 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+import tfl_client
 from database import get_db
-from models import BaselineConfirm, BaselineTrigger, GtfsBaselineConfirm, RouteCreate, RouteUpdate
-from scanner import (
-    confirm_baseline,
-    confirm_gtfs_baseline,
-    fetch_baseline_options,
-    fetch_gtfs_baseline_options,
-    scan_all_routes,
-    scan_route,
-)
+from display import route_display_name, route_via_label
+from models import BaselineConfirm, BaselineTrigger, RouteCreate, RouteUpdate
+from scanner import confirm_baseline, fetch_baseline_options, scan_all_routes, scan_route
 from scheduler import get_next_run, get_schedule_label
 from shared_templates import templates
-from stations import get_station_name, route_display_name, route_leg_labels, validate_crs
 
 router = APIRouter()
 
@@ -32,143 +26,123 @@ def get_admin_page(request: Request):
 @router.get("/api/routes")
 def list_routes():
     db = get_db()
-    rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
-    maps_baseline_route_ids = set()
-    gtfs_baseline_route_ids = set()
-    for r in db.execute("SELECT route_id, source FROM baselines").fetchall():
-        if r["source"] == "gtfs":
-            gtfs_baseline_route_ids.add(r["route_id"])
-        else:
-            maps_baseline_route_ids.add(r["route_id"])
-    db.close()
+    try:
+        rows = db.execute("SELECT * FROM routes ORDER BY created_at").fetchall()
+        baseline_route_ids = {"outbound": set(), "return": set()}
+        outbound_baselines = {}
+        for r in db.execute("SELECT * FROM baselines").fetchall():
+            if r["direction"] in baseline_route_ids:
+                baseline_route_ids[r["direction"]].add(r["route_id"])
+            if r["direction"] == "outbound":
+                outbound_baselines[r["route_id"]] = r
+    finally:
+        db.close()
     result = []
     for row in rows:
         d = dict(row)
-        d["scan_days"] = [int(x) for x in d["scan_days"].split(",")]
         d["kiosk_visible"] = bool(d["kiosk_visible"])
-        d["has_maps_baseline"] = row["id"] in maps_baseline_route_ids
-        d["has_gtfs_baseline"] = row["id"] in gtfs_baseline_route_ids
-        d["has_baseline"] = d["has_maps_baseline"]  # back-compat alias for templates
-        d["has_change"] = bool(row["change_crs"])
-        d["leg_labels"] = route_leg_labels(row)
-        d["display_name"] = route_display_name(row["origin_crs"], row["destination_crs"], row["change_crs"])
+        d["has_baseline"] = (
+            row["id"] in baseline_route_ids["outbound"] and row["id"] in baseline_route_ids["return"]
+        )
+        d["display_name"] = route_display_name(row)
+        outbound_baseline = outbound_baselines.get(row["id"])
+        d["via_label"] = route_via_label(outbound_baseline) if outbound_baseline else None
         result.append(d)
     return result
 
 
 @router.post("/api/routes", status_code=201)
 def create_route(body: RouteCreate):
-    crses = [body.origin_crs]
-    if body.change_crs:
-        crses.append(body.change_crs)
-    crses.append(body.destination_crs)
-    invalid = [crs for crs in crses if not validate_crs(crs)]
+    invalid = [s.id for s in (body.origin, body.destination) if not tfl_client.stop_point_exists(s.id)]
     if invalid:
-        raise HTTPException(status_code=400, detail={"invalid_crs": invalid})
+        raise HTTPException(status_code=400, detail={"invalid_stations": invalid})
 
-    name = body.name or route_display_name(body.origin_crs, body.destination_crs, body.change_crs)
+    name = body.name or f"{body.origin.name} to {body.destination.name}"
     db = get_db()
+    try:
+        if body.kiosk_visible:
+            kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
+            if kiosk_count >= 3:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+                )
 
-    if body.kiosk_visible:
-        kiosk_count = db.execute(
-            "SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1"
-        ).fetchone()[0]
-        if kiosk_count >= 3:
-            db.close()
-            raise HTTPException(
-                status_code=422,
-                detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
-            )
-
-    cur = db.execute(
-        """INSERT INTO routes
-           (name, origin_crs, change_crs, destination_crs, scan_days, lookahead_weeks, threshold_pct, kiosk_visible,
-            scan_source, gtfs_lookahead_weeks, gtfs_scan_days)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            name,
-            body.origin_crs,
-            body.change_crs,
-            body.destination_crs,
-            ",".join(str(d) for d in body.scan_days),
-            body.lookahead_weeks,
-            body.threshold_pct,
-            int(body.kiosk_visible),
-            body.scan_source,
-            body.gtfs_lookahead_weeks,
-            ",".join(str(d) for d in body.gtfs_scan_days) if body.gtfs_scan_days is not None else None,
-        ),
-    )
-    db.commit()
-    route_id = cur.lastrowid
-    db.close()
+        cur = db.execute(
+            """INSERT INTO routes
+               (name, origin_stop_id, origin_name, destination_stop_id, destination_name,
+                departure_time, return_time, threshold_pct, kiosk_visible, kiosk_color)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                name, body.origin.id, body.origin.name, body.destination.id, body.destination.name,
+                body.departure_time, body.return_time, body.threshold_pct,
+                int(body.kiosk_visible), body.kiosk_color,
+            ),
+        )
+        db.commit()
+        route_id = cur.lastrowid
+    finally:
+        db.close()
     return {"id": route_id, "name": name}
 
 
 @router.patch("/api/routes/{route_id}")
 def update_route(route_id: int, body: RouteUpdate):
     db = get_db()
-    row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
-    if not row:
+    try:
+        row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Route not found")
+
+        fields = []
+        params = []
+        if body.name is not None:
+            fields.append("name = ?")
+            params.append(body.name)
+        if body.departure_time is not None:
+            fields.append("departure_time = ?")
+            params.append(body.departure_time)
+        if body.return_time is not None:
+            fields.append("return_time = ?")
+            params.append(body.return_time)
+        if body.threshold_pct is not None:
+            fields.append("threshold_pct = ?")
+            params.append(body.threshold_pct)
+        if body.kiosk_visible is not None:
+            if body.kiosk_visible and not row["kiosk_visible"]:
+                kiosk_count = db.execute("SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1").fetchone()[0]
+                if kiosk_count >= 3:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
+                    )
+            fields.append("kiosk_visible = ?")
+            params.append(int(body.kiosk_visible))
+        if body.kiosk_color is not None:
+            fields.append("kiosk_color = ?")
+            params.append(body.kiosk_color)
+
+        if fields:
+            params.append(route_id)
+            db.execute(f"UPDATE routes SET {', '.join(fields)} WHERE id = ?", params)
+            db.commit()
+    finally:
         db.close()
-        raise HTTPException(status_code=404, detail="Route not found")
-
-    fields = []
-    params = []
-    if body.name is not None:
-        fields.append("name = ?")
-        params.append(body.name)
-    if body.scan_days is not None:
-        fields.append("scan_days = ?")
-        params.append(",".join(str(d) for d in body.scan_days))
-    if body.lookahead_weeks is not None:
-        fields.append("lookahead_weeks = ?")
-        params.append(body.lookahead_weeks)
-    if body.threshold_pct is not None:
-        fields.append("threshold_pct = ?")
-        params.append(body.threshold_pct)
-    if body.kiosk_visible is not None:
-        if body.kiosk_visible and not row["kiosk_visible"]:
-            kiosk_count = db.execute(
-                "SELECT COUNT(*) FROM routes WHERE kiosk_visible = 1"
-            ).fetchone()[0]
-            if kiosk_count >= 3:
-                db.close()
-                raise HTTPException(
-                    status_code=422,
-                    detail="Kiosk already shows 3 routes. Remove a route from kiosk before adding another.",
-                )
-        fields.append("kiosk_visible = ?")
-        params.append(int(body.kiosk_visible))
-    if body.scan_source is not None:
-        fields.append("scan_source = ?")
-        params.append(body.scan_source)
-    if body.gtfs_lookahead_weeks is not None:
-        fields.append("gtfs_lookahead_weeks = ?")
-        params.append(body.gtfs_lookahead_weeks)
-    if body.gtfs_scan_days is not None:
-        fields.append("gtfs_scan_days = ?")
-        params.append(",".join(str(d) for d in body.gtfs_scan_days))
-
-    if fields:
-        params.append(route_id)
-        db.execute(f"UPDATE routes SET {', '.join(fields)} WHERE id = ?", params)
-        db.commit()
-    db.close()
     return {"ok": True}
 
 
 @router.delete("/api/routes/{route_id}", status_code=204)
 def delete_route(route_id: int):
     db = get_db()
-    row = db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone()
-    if not row:
+    try:
+        row = db.execute("SELECT id FROM routes WHERE id = ?", (route_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Route not found")
+        db.execute("UPDATE api_usage_log SET route_id = NULL WHERE route_id = ?", (route_id,))
+        db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
+        db.commit()
+    finally:
         db.close()
-        raise HTTPException(status_code=404, detail="Route not found")
-    db.execute("UPDATE api_usage_log SET route_id = NULL WHERE route_id = ?", (route_id,))
-    db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-    db.commit()
-    db.close()
 
 
 @router.post("/api/routes/{route_id}/baseline/options")
@@ -184,56 +158,16 @@ def baseline_options(route_id: int, body: BaselineTrigger):
 
 @router.post("/api/routes/{route_id}/baseline/confirm")
 def confirm_baseline_endpoint(route_id: int, body: BaselineConfirm):
-    def _to_dict(sel):
-        if sel is None:
-            return None
-        return {"duration_s": sel.duration_s, "steps": sel.steps, "dep_stop": sel.dep_stop, "arr_stop": sel.arr_stop}
-
-    try:
-        confirm_baseline(route_id, body.baseline_date, {
-            "outbound_leg1": _to_dict(body.outbound_leg1),
-            "outbound_leg2": _to_dict(body.outbound_leg2),
-            "return_leg1":   _to_dict(body.return_leg1),
-            "return_leg2":   _to_dict(body.return_leg2),
-        })
-        return {"ok": True}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/routes/{route_id}/baseline/gtfs/options")
-def gtfs_baseline_options(route_id: int, body: BaselineTrigger):
-    try:
-        options = fetch_gtfs_baseline_options(route_id, body.baseline_date)
-        return {"ok": True, "options": options}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/routes/{route_id}/baseline/gtfs/confirm")
-def confirm_gtfs_baseline_endpoint(route_id: int, body: GtfsBaselineConfirm):
-    def _to_dict(sel):
-        if sel is None:
-            return None
+    def _to_dict(choice):
         return {
-            "duration_s": sel.duration_s,
-            "departure_time": sel.departure_time,
-            "dep_stop": sel.dep_stop,
-            "arr_stop": sel.arr_stop,
-            "intermediate_stops": sel.intermediate_stops,
+            "duration_s": choice.duration_s,
+            "interchange_stops": choice.interchange_stops,
+            "leg_modes": choice.leg_modes,
+            "steps": choice.steps,
         }
 
     try:
-        confirm_gtfs_baseline(route_id, body.baseline_date, {
-            "outbound_leg1": _to_dict(body.outbound_leg1),
-            "outbound_leg2": _to_dict(body.outbound_leg2),
-            "return_leg1":   _to_dict(body.return_leg1),
-            "return_leg2":   _to_dict(body.return_leg2),
-        })
+        confirm_baseline(route_id, body.baseline_date, _to_dict(body.outbound), _to_dict(body.return_))
         return {"ok": True}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -242,37 +176,26 @@ def confirm_gtfs_baseline_endpoint(route_id: int, body: GtfsBaselineConfirm):
 
 
 @router.get("/api/routes/{route_id}/baseline")
-def get_baseline(route_id: int, source: str = "maps"):
+def get_baseline(route_id: int):
     db = get_db()
-    row = db.execute(
-        "SELECT * FROM baselines WHERE route_id = ? AND source = ?", (route_id, source)
-    ).fetchone()
-    db.close()
-    if not row:
+    try:
+        rows = db.execute("SELECT * FROM baselines WHERE route_id = ?", (route_id,)).fetchall()
+    finally:
+        db.close()
+    if not rows:
         raise HTTPException(status_code=404, detail="No baseline for this route")
 
-    def _leg(dur_col, steps_col, dep_col, arr_col):
-        if not row[arr_col]:
-            return None
-        # For source='maps', `steps` is a JSON list of transit steps. For source='gtfs' it's a
-        # repurposed JSON object ({"trip_count_by_weekday": ..., "departure_time": ...,
-        # "intermediate_stops": ...}) — passed through as-is, no branching needed here since
-        # this is read-only passthrough for the (not-yet-built) admin UI to consume.
-        return {
-            "duration_s": row[dur_col],
-            "dep_stop": row[dep_col],
-            "arr_stop": row[arr_col],
-            "steps": json.loads(row[steps_col] or "[]"),
+    result = {"baseline_date": None, "captured_at": None, "outbound": None, "return": None}
+    for row in rows:
+        result["baseline_date"] = row["baseline_date"]
+        result["captured_at"] = row["captured_at"]
+        result[row["direction"]] = {
+            "duration_s": row["duration_s"],
+            "interchange_stops": json.loads(row["interchange_stops"]),
+            "leg_modes": json.loads(row["leg_modes"]),
+            "steps": json.loads(row["steps"]),
         }
-
-    return {
-        "baseline_date": row["baseline_date"],
-        "captured_at": row["captured_at"],
-        "outbound_leg1": _leg("outbound_leg1_duration_s", "outbound_leg1_steps", "outbound_leg1_dep_stop", "outbound_leg1_arr_stop"),
-        "outbound_leg2": _leg("outbound_leg2_duration_s", "outbound_leg2_steps", "outbound_leg2_dep_stop", "outbound_leg2_arr_stop"),
-        "return_leg1":   _leg("return_leg1_duration_s",   "return_leg1_steps",   "return_leg1_dep_stop",   "return_leg1_arr_stop"),
-        "return_leg2":   _leg("return_leg2_duration_s",   "return_leg2_steps",   "return_leg2_dep_stop",   "return_leg2_arr_stop"),
-    }
+    return result
 
 
 @router.post("/api/routes/{route_id}/scan")
@@ -295,26 +218,4 @@ async def trigger_scan_all():
 
 @router.get("/api/stations/search")
 def search_stations(q: str = ""):
-    from stations import _STATION_LIST
-    q = q.upper().strip()
-    if not q:
-        return []
-    matches = [
-        {"crs": crs, "name": name}
-        for crs, name in _STATION_LIST.items()
-        if q in crs or q in name.upper()
-    ]
-    return matches[:20]
-
-
-@router.get("/api/stations/{crs}")
-def get_station(crs: str):
-    from stations import get_coords
-    crs = crs.upper()
-    if not validate_crs(crs):
-        raise HTTPException(status_code=404, detail="Station not found")
-    try:
-        lat, lon = get_coords(crs)
-        return {"crs": crs, "name": get_station_name(crs), "latitude": lat, "longitude": lon}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return tfl_client.search_stop_points(q)

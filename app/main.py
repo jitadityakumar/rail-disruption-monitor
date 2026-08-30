@@ -7,7 +7,6 @@ from fastapi.templating import Jinja2Templates
 
 from database import init_db
 from scheduler import setup_scheduler, shutdown_scheduler
-from stations import load_station_list
 from routers import admin, reports, kiosk
 
 templates = Jinja2Templates(directory="templates")
@@ -16,7 +15,6 @@ templates = Jinja2Templates(directory="templates")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    load_station_list()
     setup_scheduler()
     yield
     shutdown_scheduler()

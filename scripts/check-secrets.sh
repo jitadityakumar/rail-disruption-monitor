@@ -19,7 +19,7 @@ fi
 
 # 3. Scan for API key env vars with literal values
 if echo "$STAGED" | xargs -r git show --cached -- 2>/dev/null | \
-    grep -qE '(GOOGLE_MAPS_API_KEY|RAILDATA_STATIONS_API_KEY)=[^$\[[:space:]]'; then
+    grep -qE '(TFL_API_KEY)=[^$\[[:space:]]'; then
   echo "ERROR: API key with a value found in staged files."
   exit 1
 fi

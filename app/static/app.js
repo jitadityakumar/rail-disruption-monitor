@@ -1,3 +1,14 @@
+function errMessage(e) {
+  const d = e.detail;
+  if (typeof d === 'string') return d;
+  if (d && Array.isArray(d.invalid_stations)) return 'Invalid stations: ' + d.invalid_stations.join(', ');
+  if (Array.isArray(d)) {
+    // FastAPI/Pydantic validation-error shape: [{msg, loc, ...}, ...]
+    return d.map(x => (x && x.msg) || JSON.stringify(x)).join('; ');
+  }
+  return e.message || 'Something went wrong.';
+}
+
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')

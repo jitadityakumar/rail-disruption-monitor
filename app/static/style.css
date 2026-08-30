@@ -261,9 +261,9 @@ tr:hover td { background: var(--surface2); }
   flex: 1;
 }
 
-/* Autocomplete */
-.autocomplete-wrapper { position: relative; }
-.autocomplete-list {
+/* TfL station search (button-triggered, issue #24) */
+.station-search { position: relative; }
+.ss-results {
   position: absolute;
   top: 100%;
   left: 0;
@@ -276,13 +276,23 @@ tr:hover td { background: var(--surface2); }
   overflow-y: auto;
   margin-top: 2px;
 }
-.autocomplete-item {
-  padding: 0.4rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.85rem;
+.ss-result { padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
+.ss-result:hover { background: var(--surface2); }
+.ss-result .ss-modes { color: var(--text-muted); font-size: 0.78rem; margin-left: 0.4rem; }
+.ss-empty { padding: 0.5rem 0.75rem; font-size: 0.82rem; color: var(--text-muted); }
+.ss-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  width: fit-content;
 }
-.autocomplete-item:hover, .autocomplete-item.active { background: var(--surface2); }
-.autocomplete-item .crs-code { color: var(--text-muted); font-size: 0.78rem; margin-left: 0.4rem; }
+.ss-chip-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
+.ss-chip-remove:hover { color: var(--text-pri); }
 
 /* Display / Kiosk page */
 .display-page { padding: 2rem; min-height: 100vh; }
@@ -396,9 +406,8 @@ tr:hover td { background: var(--surface2); }
   border-radius: 5px;
   min-height: 52px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding-top: 7px;
   font-size: 13px;
   font-weight: 600;
   border: 1px solid transparent;
@@ -406,12 +415,23 @@ tr:hover td { background: var(--surface2); }
 }
 .reports-cal-cell--empty      { background: transparent; border-color: transparent; }
 .reports-cal-cell--clear      { background: #2ec76a; border-color: #26a85a; color: #fff; cursor: pointer; }
-.reports-cal-cell--clear:hover { background: #29b85f; }
-.reports-cal-cell--disrupted  { background: #e84545; border-color: #c43a3a; color: #fff; cursor: pointer; }
-.reports-cal-cell--disrupted:hover { background: #d43f3f; }
 .reports-cal-cell--future     { background: #252530; border-color: #32323f; color: var(--text-sec); }
-.reports-cal-cell--unmonitored{ background: #18181e; border-color: #21212a; color: var(--text-muted); }
 .reports-cal-cell--today      { box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px #f5a623; z-index: 1; }
+
+/* Per-route identity-stripe cells (issue #24): any day where at least one monitored route is
+   disrupted renders as repeating diagonal stripes, one band per route -- green where that route
+   is clear that day, the route's own permanent colour where it's disrupted. The stripe pattern
+   itself names which route(s) are down; background is computed and set inline per-cell in JS
+   (see computeCellBackground) since the number of bands depends on how many routes exist. */
+.reports-cal-cell--pattern { color: #fff; cursor: pointer; border-color: transparent; }
+.reports-cal-cell--pattern span.reports-cal-date-circle,
+.reports-cal-cell--clear span.reports-cal-date-circle {
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1;
+  width: 26px; height: 26px; box-sizing: border-box; border-radius: 5px;
+  padding-top: 2px;
+  background: #000;
+}
 
 /* Right: disruption panel */
 .reports-disrupt-panel {
@@ -462,7 +482,8 @@ tr:hover td { background: var(--surface2); }
 .rdc-legs  { display: flex; flex-direction: column; gap: 5px; }
 .rdc-leg   { background: var(--bg-card-alt); border-radius: 4px; padding: 7px 10px; display: flex; flex-direction: column; gap: 3px; }
 .rdc-leg-dir    { font-size: 12px; font-weight: 500; color: var(--text-pri); }
-.rdc-leg-reason { font-size: 11px; color: var(--red-text); display: flex; align-items: center; gap: 5px; }
+.rdc-leg-reason { font-size: 11px; color: var(--red-text); display: flex; align-items: center; flex-wrap: wrap; row-gap: 3px; }
+.rdc-leg-route  { font-size: 11px; color: var(--text-sec); margin-top: 2px; }
 
 /* Route monitored cards */
 .rmc {
@@ -474,7 +495,8 @@ tr:hover td { background: var(--surface2); }
   flex-direction: column;
   gap: 6px;
 }
-.rmc-name { font-size: 13px; font-weight: 600; color: var(--text-pri); }
+.rmc-name { font-size: 13px; font-weight: 600; color: var(--text-pri); display: flex; align-items: center; gap: 8px; }
+.rmc-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .rmc-meta { display: flex; flex-wrap: wrap; gap: 12px; }
 .rmc-item { font-size: 12px; color: var(--text-sec); display: flex; gap: 5px; }
 .rmc-label { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; align-self: center; }
@@ -673,6 +695,14 @@ tr:hover td { background: var(--surface2); }
   align-items: center;
   justify-content: center;
 }
+.day-detail-alternate {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--text-sec);
+  font-size: 12.5px;
+}
 .issue-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .issue-row-title-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .issue-row-title { font-size: 15px; font-weight: 700; color: var(--text-pri); letter-spacing: -0.005em; }
@@ -757,28 +787,6 @@ tr:hover td { background: var(--surface2); }
 .mini-cal-cell--past       .mini-cal-date      { color: #5a5a68; }
 .mini-cal-cell--past-disrupted .mini-cal-month,
 .mini-cal-cell--past-disrupted .mini-cal-date  { color: rgba(255,255,255,0.7); }
-
-/* Legend */
-.report-legend {
-  display: flex;
-  gap: 20px;
-  padding: 10px 20px;
-  border-top: 1px solid var(--border-sub);
-  background: var(--bg-nav);
-  flex-wrap: wrap;
-}
-.report-legend-item { display: flex; align-items: center; gap: 6px; }
-.report-legend-swatch {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-.report-legend-label { font-size: 13px; color: var(--text-sec); font-weight: 500; }
-.report-legend-swatch--today {
-  background: #252530;
-  box-shadow: 0 0 0 1.5px var(--bg-card), 0 0 0 3px #f5a623;
-}
 
 /* Day-detail modal */
 .day-detail-leg { margin-bottom: 1.25rem; }
