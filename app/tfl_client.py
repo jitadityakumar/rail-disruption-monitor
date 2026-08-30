@@ -62,6 +62,11 @@ def _get(url: str) -> dict | list:
         raise TflApiError(f"http_{e.code}") from e
     except URLError as e:
         raise TflApiError(f"network_error: {e}") from e
+    except TimeoutError as e:
+        # A timeout during response-body read (after headers are already received) surfaces as
+        # a bare TimeoutError/socket.timeout, not wrapped in URLError -- must be caught
+        # separately or it propagates as an unhandled 500 instead of degrading to retry/ok=False.
+        raise TflApiError(f"network_error: {e}") from e
     except ValueError as e:
         raise TflApiError(f"malformed_response: {e}") from e
 
