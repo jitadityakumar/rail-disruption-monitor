@@ -234,8 +234,11 @@ function renderDisruptionList(routes) {
     const legsHtml = disrupted.map(leg => `
       <div class="rdc-leg">
         <div class="rdc-leg-dir">${esc(leg.label)}</div>
-        ${leg.issues.map(issue => `
-          <div class="rdc-leg-reason">${issueIconSvg(issue.type)} ${esc(issue.title)}</div>`).join('')}
+        ${leg.issues.length ? `
+          <div class="rdc-leg-reason">${leg.issues.map(issue =>
+            `${issueIconSvg(issue.type)} ${esc(issue.title)}${issue.pill ? ' ' + esc(issue.pill) : ''}`
+          ).join(' &nbsp;·&nbsp; ')}</div>` : ''}
+        ${leg.route_chain ? `<div class="rdc-leg-route">${esc(leg.route_chain)}</div>` : ''}
       </div>`).join('');
 
     return `
@@ -250,12 +253,6 @@ function renderDisruptionList(routes) {
 }
 
 /* ── Day-detail modal ── */
-function fmtAlternate(steps, durationS) {
-  const transit = (steps || []).filter(s => s.mode !== 'walking');
-  const via = transit.map(s => `${s.dep_name} → ${s.arr_name} (${s.mode})`).join(' + ');
-  const mins = durationS ? Math.round(durationS / 60) : null;
-  return mins ? `${via}, ~${mins} min` : via;
-}
 
 function showDayDetail(iso, routeDetails) {
   document.getElementById('day-detail-title').textContent = formatDateFull(iso);
@@ -293,8 +290,8 @@ function showDayDetail(iso, routeDetails) {
               </div>
             </div>
           </div>`).join('')}
-        ${leg.alternate_steps && leg.alternate_steps.length ? `
-          <div class="day-detail-alternate">Alternate: ${esc(fmtAlternate(leg.alternate_steps, leg.duration_s))}</div>` : ''}
+        ${leg.route_chain ? `
+          <div class="day-detail-alternate">Alternate: ${esc(leg.route_chain)}</div>` : ''}
       </div>`).join('');
     return `
       <div style="margin-bottom:1rem">

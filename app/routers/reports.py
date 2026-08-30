@@ -15,7 +15,27 @@ router = APIRouter()
 _BUS_MODES = {"bus", "replacement-bus"}
 
 
-def _derive_issues(baseline, duration_s, alternate_steps, disruption_reasons) -> list[dict]:
+_CHAIN_ARROWS = {"national-rail": "⇄", "bus": "⦵", "replacement-bus": "⦵"}
+_CHAIN_ARROW_DEFAULT = "⟶"
+
+
+def route_chain_label(steps: list[dict] | None) -> str | None:
+    """"Barnes Rail Station <arrow> Clapham Junction Rail Station <arrow> ..." -- the full chain
+    of stations the alternate itinerary actually passes through (walking legs excluded, since
+    they're inconsistently itemized by TfL -- see tfl_client comments), with the arrow between
+    each pair naming that leg's mode: U+21C4 for national rail, U+29B5 for any bus mode, U+27F6
+    for anything else. None if there's no usable itinerary to show."""
+    transit_steps = [s for s in (steps or []) if s.get("mode") != "walking"]
+    if not transit_steps:
+        return None
+    parts = [transit_steps[0]["dep_name"]]
+    for leg in transit_steps:
+        parts.append(_CHAIN_ARROWS.get(leg.get("mode"), _CHAIN_ARROW_DEFAULT))
+        parts.append(leg["arr_name"])
+    return " ".join(parts)
+
+
+def _derive_issues(baseline, duration_s, alternate_steps) -> list[dict]:
     issues: list[dict] = []
     seen: set[str] = set()
 
@@ -24,6 +44,11 @@ def _derive_issues(baseline, duration_s, alternate_steps, disruption_reasons) ->
             seen.add(issue_type)
             issues.append({"type": issue_type, "title": title, "pill": pill})
 
+    # TfL's JourneyResults only ever returns complete, valid itineraries -- a structural
+    # difference from baseline (extra interchanges, different stations) tells us *something*
+    # changed but never *where* the actual disruption is, so we don't try to guess or surface a
+    # "No direct route found" / raw disruptions[] reason here. The alternate itinerary itself
+    # (see alternate_steps / route_chain_label) is shown instead, as the concrete fact TfL gave us.
     transit_steps = [s for s in (alternate_steps or []) if s.get("mode") != "walking"]
     leg_modes = [s.get("mode") for s in transit_steps]
 
@@ -31,22 +56,11 @@ def _derive_issues(baseline, duration_s, alternate_steps, disruption_reasons) ->
         add("bus", "Bus replacement")
 
     if baseline is not None:
-        baseline_interchange = json.loads(baseline["interchange_stops"])
-        candidate_interchange = [s.get("arr_id") for s in transit_steps[:-1]] if transit_steps else []
-        if leg_modes and candidate_interchange != baseline_interchange:
-            add("route", "No direct route found")
-
         baseline_duration_s = baseline["duration_s"]
         if baseline_duration_s and duration_s and duration_s > baseline_duration_s:
             delta_min = round((duration_s - baseline_duration_s) / 60)
             pill = f"+{delta_min} min" if delta_min >= 1 else None
             add("time", "Journey time longer", pill)
-
-    for reason in disruption_reasons or []:
-        issues.append({"type": "other", "title": reason, "pill": None})
-
-    if not issues and not leg_modes:
-        add("route", "No direct route found")
 
     return issues
 
@@ -100,14 +114,12 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
                 statuses.append(status)
                 duration_s = row["duration_s"]
                 alternate_steps = json.loads(row["alternate_steps"] or "null")
-                disruption_reasons = json.loads(row["disruption_reasons"] or "[]")
                 baseline = baselines.get(direction)
-                issues = _derive_issues(baseline, duration_s, alternate_steps, disruption_reasons)
+                issues = _derive_issues(baseline, duration_s, alternate_steps)
 
                 by_date[target_date][direction] = {
                     "status": status,
                     "duration_s": duration_s,
-                    "disruption_reasons": disruption_reasons,
                     "scanned_at": row["scanned_at"],
                 }
 
@@ -117,8 +129,7 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
                     "status": status,
                     "duration_s": duration_s,
                     "issues": issues,
-                    "reasons": disruption_reasons,
-                    "alternate_steps": alternate_steps,
+                    "route_chain": route_chain_label(alternate_steps),
                 })
 
             if any(s == "DISRUPTED" for s in statuses):

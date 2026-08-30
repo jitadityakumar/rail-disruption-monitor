@@ -482,7 +482,8 @@ tr:hover td { background: var(--surface2); }
 .rdc-legs  { display: flex; flex-direction: column; gap: 5px; }
 .rdc-leg   { background: var(--bg-card-alt); border-radius: 4px; padding: 7px 10px; display: flex; flex-direction: column; gap: 3px; }
 .rdc-leg-dir    { font-size: 12px; font-weight: 500; color: var(--text-pri); }
-.rdc-leg-reason { font-size: 11px; color: var(--red-text); display: flex; align-items: center; gap: 5px; }
+.rdc-leg-reason { font-size: 11px; color: var(--red-text); display: flex; align-items: center; flex-wrap: wrap; row-gap: 3px; }
+.rdc-leg-route  { font-size: 11px; color: var(--text-sec); margin-top: 2px; }
 
 /* Route monitored cards */
 .rmc {

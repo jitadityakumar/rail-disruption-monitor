@@ -308,6 +308,10 @@ def _fetch_journeys_raw(origin_stop_id: str, dest_stop_id: str, query_dt: dt.dat
         _log_usage(route_id, purpose)
         return TflResult(ok=True, itineraries=itineraries)
 
+    logger.warning(
+        "TfL JourneyResults failed after 3 attempts (%s -> %s at %s, purpose=%s): %s",
+        origin_stop_id, dest_stop_id, query_dt.isoformat(), purpose, last_error or "unknown_error",
+    )
     return TflResult(ok=False, error=last_error or "unknown_error")
 
 

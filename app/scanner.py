@@ -220,6 +220,7 @@ def _scan_direction(route, baseline, target_date: str, direction: str) -> dict:
     reasons = _filter_display_reasons(fastest_seen.disruptions if fastest_seen else [])
     return {
         "status": "DISRUPTED",
+        "duration_s": fastest_seen.duration_s if fastest_seen else None,
         "alternate_steps": fastest_seen.steps if fastest_seen else None,
         "disruption_reasons": reasons, "calls_made": calls_made, "window_fully_walked": True,
     }
