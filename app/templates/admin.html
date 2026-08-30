@@ -340,12 +340,7 @@ async function submitAddRoute(btn) {
     closeModal('add-modal');
     loadRoutes();
   } catch (e) {
-    const detail = e.detail;
-    if (detail && detail.invalid_stations) {
-      err.textContent = 'Invalid stations: ' + detail.invalid_stations.join(', ');
-    } else {
-      err.textContent = e.message || 'Error adding route.';
-    }
+    err.textContent = errMessage(e);
   } finally {
     btn.disabled = false;
   }
@@ -394,7 +389,7 @@ async function fetchBaselineOptions(btn) {
     document.getElementById('baseline-step1').style.display = 'none';
     document.getElementById('baseline-step2').style.display = '';
   } catch (e) {
-    err.textContent = e.message || 'Error fetching options.';
+    err.textContent = errMessage(e);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Find journey options';
@@ -460,7 +455,7 @@ async function confirmBaseline(btn) {
     closeModal('baseline-modal');
     loadRoutes();
   } catch (e) {
-    err.textContent = e.message || 'Error saving baseline.';
+    err.textContent = errMessage(e);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Confirm baseline';
@@ -503,7 +498,7 @@ async function submitEditRoute(btn) {
     closeModal('edit-modal');
     loadRoutes();
   } catch (e) {
-    document.getElementById('edit-error').textContent = e.message || 'Error saving.';
+    document.getElementById('edit-error').textContent = errMessage(e);
   } finally {
     btn.disabled = false;
   }
