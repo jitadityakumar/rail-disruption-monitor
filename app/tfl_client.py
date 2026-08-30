@@ -82,12 +82,24 @@ def _log_usage(route_id: int | None, purpose: str) -> None:
         logger.warning("Failed to log API usage", exc_info=True)
 
 
+_SEARCH_MODE_SET = set(_SEARCH_MODES.split(","))
+
+
 def search_stop_points(query: str, limit: int = 8) -> list[dict]:
     """GET /StopPoint/Search/{query}?modes=... -> [{"id","name","modes"}, ...].
-    HUB ids are NOT filtered here (the admin needs to see them to understand why they're
-    rejected) -- rejection happens at RouteCreate's StopPoint model validator, so the UI can
-    show a clear error rather than silently omitting valid-looking results. Never raises -- a
-    failed/empty search just returns []."""
+    HUB ids are NOT filtered out of the raw match list (the admin needs to see them to
+    understand why they're rejected) -- rejection happens at RouteCreate's StopPoint model
+    validator, so the UI can show a clear error rather than silently omitting valid-looking
+    results. Never raises -- a failed/empty search just returns [].
+
+    Hub children are expanded inline: found live that TfL's own /StopPoint/Search for
+    "waterloo" returns ONLY the HUBWAT hub group, "London Waterloo East", and the unrelated
+    "Waterloo (Merseyside)" -- the concrete "London Waterloo Rail Station" (the actual mainline
+    station this app's routes need) never appears in the raw match list at all, so a hub-only
+    result set left the admin with no valid station to pick for one of this app's two fixed
+    routes. Fetching each hub's /StopPoint/{id} children (already used for the same purpose by
+    stop_point_exists) and folding in the transit-mode ones fixes this without changing what a
+    plain non-hub search returns."""
     query = query.strip()
     if not query:
         return []
@@ -99,15 +111,37 @@ def search_stop_points(query: str, limit: int = 8) -> list[dict]:
 
     matches = data.get("matches") or [] if isinstance(data, dict) else []
     results = []
+    seen_ids = set()
+    hub_ids = []
     for m in matches:
         stop_id = m.get("id")
         name = m.get("name")
-        if not stop_id or not name:
+        if not stop_id or not name or stop_id in seen_ids:
             continue
+        seen_ids.add(stop_id)
         results.append({"id": stop_id, "name": name, "modes": m.get("modes") or []})
-        if len(results) >= limit:
-            break
-    return results
+        if stop_id.upper().startswith("HUB"):
+            hub_ids.append(stop_id)
+
+    for hub_id in hub_ids:
+        try:
+            hub_data = _get(f"https://api.tfl.gov.uk/StopPoint/{quote(hub_id)}")
+        except TflApiError:
+            continue
+        if not isinstance(hub_data, dict):
+            continue
+        for child in hub_data.get("children") or []:
+            child_id = child.get("id")
+            child_name = child.get("commonName")
+            child_modes = child.get("modes") or []
+            if not child_id or not child_name or child_id in seen_ids:
+                continue
+            if not any(mode in _SEARCH_MODE_SET for mode in child_modes):
+                continue
+            seen_ids.add(child_id)
+            results.append({"id": child_id, "name": child_name, "modes": child_modes})
+
+    return results[:limit]
 
 
 def stop_point_exists(stop_id: str) -> bool:
