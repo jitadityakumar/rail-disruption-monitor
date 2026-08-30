@@ -5,6 +5,7 @@ Orchestrates baseline capture and disruption scanning against the TfL Unified AP
 import datetime
 import json
 import logging
+import time as _time
 from datetime import date, time, timedelta
 
 import tfl_client
@@ -12,6 +13,10 @@ from database import get_db
 
 TFL_SEARCH_WINDOW_MINUTES = 120
 TFL_MAX_CALLS_PER_DATE_DIRECTION = 8
+# Only applied to the scheduled daily scan (scheduler.py), never the admin "Scan" button --
+# the admin action is a one-off, human-triggered check where waiting matters; the scheduled
+# scan runs unattended at 02:00 with no one waiting on it, so spacing its calls out is free.
+SCHEDULED_SCAN_DELAY_SECONDS = 2
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +158,7 @@ def _filter_display_reasons(disruptions: list[dict]) -> list[str]:
     return reasons
 
 
-def _scan_direction(route, baseline, target_date: str, direction: str) -> dict:
+def _scan_direction(route, baseline, target_date: str, direction: str, scheduled: bool = False) -> dict:
     origin, dest = (
         (route["origin_stop_id"], route["destination_stop_id"]) if direction == "outbound"
         else (route["destination_stop_id"], route["origin_stop_id"])
@@ -176,6 +181,8 @@ def _scan_direction(route, baseline, target_date: str, direction: str) -> dict:
     while calls_made < TFL_MAX_CALLS_PER_DATE_DIRECTION:
         result = tfl_client.fetch_journeys_at(origin, dest, query_dt, route["id"], "scan")
         calls_made += 1
+        if scheduled:
+            _time.sleep(SCHEDULED_SCAN_DELAY_SECONDS)
         if not result.ok:
             break
         if result.no_data:
@@ -249,7 +256,7 @@ def _save_result(route_id: int, target_date: str, direction: str, outcome: dict)
         db.close()
 
 
-def scan_route(route_id: int) -> dict:
+def scan_route(route_id: int, scheduled: bool = False) -> dict:
     db = get_db()
     row = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
     db.close()
@@ -267,7 +274,7 @@ def scan_route(route_id: int) -> dict:
     for target_date in target_dates:
         date_str = target_date.isoformat()
         for direction, baseline in (("outbound", outbound_baseline), ("return", return_baseline)):
-            outcome = _scan_direction(row, baseline, date_str, direction)
+            outcome = _scan_direction(row, baseline, date_str, direction, scheduled)
             _save_result(route_id, date_str, direction, outcome)
             if outcome["status"] in counts:
                 counts[outcome["status"]] += 1
@@ -281,12 +288,12 @@ def scan_route(route_id: int) -> dict:
     return {"route_id": route_id, "dates_scanned": len(target_dates), "counts": counts}
 
 
-def scan_all_routes() -> None:
+def scan_all_routes(scheduled: bool = False) -> None:
     db = get_db()
     route_ids = [r["id"] for r in db.execute("SELECT id FROM routes").fetchall()]
     db.close()
     for route_id in route_ids:
         try:
-            scan_route(route_id)
+            scan_route(route_id, scheduled)
         except Exception as e:
             logger.error("Error scanning route %s: %s", route_id, e)

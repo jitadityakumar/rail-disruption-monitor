@@ -31,6 +31,7 @@ def setup_scheduler() -> None:
         id="daily_scan",
         replace_existing=True,
         misfire_grace_time=3600,
+        kwargs={"scheduled": True},
     )
     _scheduler.start()
     logger.info("Scheduler started: daily scan %02d:%02d", hour, minute)
