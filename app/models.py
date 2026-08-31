@@ -12,7 +12,7 @@ def _validate_hhmm(v: str) -> str:
     return v
 
 
-KioskColor = Literal["blue", "yellow", "green", "purple", "orange", "teal"]
+KioskColor = Literal["blue", "yellow", "purple", "orange", "teal"]
 
 
 class StopPoint(BaseModel):
