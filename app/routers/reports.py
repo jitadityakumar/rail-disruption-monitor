@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -69,7 +69,7 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
     where = "WHERE kiosk_visible = 1" if kiosk_only else ""
     routes = db.execute(f"SELECT * FROM routes {where} ORDER BY created_at").fetchall()
     result = []
-    today = date.today()
+    today = scanner.london_today()
 
     window_end = scanner.scan_window_end_date(today)
 
@@ -91,10 +91,10 @@ def _build_route_data(db, kiosk_only: bool = False) -> list:
             """SELECT target_date, direction, status, duration_s, matched_steps, alternate_steps,
                       disruption_reasons, scanned_at
                FROM scan_results WHERE route_id = ?
-               AND target_date >= date('now')
+               AND target_date >= ?
                AND target_date <= ?
                ORDER BY target_date, direction""",
-            (route["id"], window_end.isoformat()),
+            (route["id"], today.isoformat(), window_end.isoformat()),
         ).fetchall()
 
         direction_label_map = {lbl["key"]: lbl["label"] for lbl in route_dict["direction_labels"]}

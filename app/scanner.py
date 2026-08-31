@@ -7,6 +7,7 @@ import json
 import logging
 import time as _time
 from datetime import date, time, timedelta
+from zoneinfo import ZoneInfo
 
 import tfl_client
 from database import get_db
@@ -18,14 +19,23 @@ TFL_MAX_CALLS_PER_DATE_DIRECTION = 8
 # scan runs unattended at 02:00 with no one waiting on it, so spacing its calls out is free.
 SCHEDULED_SCAN_DELAY_SECONDS = 2
 
+_LONDON_TZ = ZoneInfo("Europe/London")
+
 logger = logging.getLogger(__name__)
+
+
+def london_today() -> date:
+    """Today's date in Europe/London local time -- never the OS/container clock's date.today(),
+    which is UTC here (no TZ=Europe/London set) and lags London by a day for ~1hr after local
+    midnight during BST. See issue #27."""
+    return datetime.datetime.now(_LONDON_TZ).date()
 
 
 def scan_window_end_date(today: date | None = None) -> date:
     """Last calendar day of *next* month from today -- current month + next month, per issue
     #24 follow-up (replaces the old per-route lookahead_weeks knob with a fixed, app-wide
     window). E.g. today=2026-08-30 -> 2026-09-30."""
-    today = today or date.today()
+    today = today or london_today()
     month_after_next = today.month + 2
     year = today.year + (month_after_next - 1) // 12
     month = (month_after_next - 1) % 12 + 1
@@ -36,7 +46,7 @@ def scan_window_end_date(today: date | None = None) -> date:
 def _target_dates() -> list[date]:
     """Every day from today through scan_window_end_date() -- scanning is no longer limited to
     specific weekdays (issue #24 follow-up: scan_days removed, every day is scanned)."""
-    today = date.today()
+    today = london_today()
     end_date = scan_window_end_date(today)
     return [today + timedelta(days=i) for i in range((end_date - today).days + 1)]
 
